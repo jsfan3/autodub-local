@@ -1,6 +1,7 @@
 # autodub_local
 
 Local, no-cloud video dubbing for MP4 recordings using open-source components.
+
 By [Francesco Galgani](https://www.informatica-libera.net/), license [CC0](https://creativecommons.org/publicdomain/zero/1.0/).
 
 This project replaces the audio track of one or more MP4 files with a translated, synthesized dub while keeping the original video stream intact. It is designed for long recordings such as webinars, livestreams, interviews, and meetings where perfect lip-sync is not required.
