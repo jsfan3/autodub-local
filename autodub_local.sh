@@ -211,12 +211,14 @@ import math
 import logging
 import hashlib
 import subprocess
+import re
 from pathlib import Path
 from collections import defaultdict
 from typing import Dict, List, Tuple, Optional, Any
 
 import numpy as np
 import soundfile as sf
+import librosa
 import torch
 from faster_whisper import WhisperModel
 from pyannote.audio import Pipeline as PyannotePipeline
@@ -598,8 +600,37 @@ def translate_utterances(utterances: List[Dict], src_lang: str, detected_lang: s
 
 
 
+def sanitize_tts_text(text: str) -> str:
+    text = (text or "").strip()
+    if not text:
+        return ""
+    text = text.replace("…", "...")
+    text = re.sub(r"\.\s*\.\s*\.+", "...", text)
+    text = re.sub(r"\.{3,}", ", ", text)
+    text = re.sub(r"\.{2}", ", ", text)
+    text = re.sub(r"\s*([,;:!?])\s*", r"\1 ", text)
+    text = re.sub(r"\s*\.\s*", ". ", text)
+    text = re.sub(r"(^|[\s(])-\s+", r"\1", text)
+    text = re.sub(r"\s+[–—-]\s+", ", ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"(,\s*){2,}", ", ", text)
+    text = re.sub(r"(\.\s*){2,}", ". ", text)
+    text = re.sub(r"([!?])\s*\.", r"\1", text)
+    text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+    return text.strip(" ,")
+
+
+def strip_terminal_tts_punctuation(text: str) -> str:
+    text = (text or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"[\s\.,;:!?…]+$", "", text)
+    text = re.sub(r"[\s–—-]+$", "", text)
+    return text.strip()
+
+
 def split_text_for_tts(text: str, max_chars: Optional[int] = None) -> List[str]:
-    text = " ".join((text or "").split()).strip()
+    text = sanitize_tts_text(text)
     if not text:
         return []
     limit = max_chars or int(os.environ.get("XTTS_MAX_CHARS", "180"))
@@ -611,7 +642,7 @@ def split_text_for_tts(text: str, max_chars: Optional[int] = None) -> List[str]:
     current = []
     for ch in text:
         current.append(ch)
-        if ch in ".!?;:,—–" or ch == "\n":
+        if ch in ".!?;:,—–-" or ch == "\n":
             parts.append("".join(current).strip())
             current = []
     if current:
@@ -646,6 +677,29 @@ def split_text_for_tts(text: str, max_chars: Optional[int] = None) -> List[str]:
         else:
             merged.append(chunk)
     return merged
+
+
+def passthrough_tts_audio(wav: np.ndarray, sr: int) -> Tuple[np.ndarray, float]:
+    return wav, (len(wav) / sr if sr else 0.0)
+
+
+def prompt_before_dubbing_if_translation_was_just_created(translated_json: Path) -> bool:
+    if not sys.stdin.isatty():
+        LOG.warning("A new translation JSON was created, but no interactive terminal is available. Continuing automatically: %s", translated_json)
+        return True
+
+    print() 
+    print("A new translation JSON has been created:")
+    print(f"  {translated_json}")
+    print("You can stop now, review or edit this JSON manually, and rerun the script later.")
+    while True:
+        answer = input("Continue with dubbing now? [Y/n]: ").strip().lower()
+        if answer in ('', 'y', 'yes'):
+            return True
+        if answer in ('n', 'no'):
+            LOG.info("Stopping after translation so the JSON can be reviewed manually: %s", translated_json)
+            return False
+        print("Please answer 'y' or 'n'.")
 
 
 class XTTSCloner:
@@ -687,17 +741,21 @@ class XTTSCloner:
             gpt_cond_latent, speaker_embedding = self.model.get_conditioning_latents(audio_path=refs)
             self.latents[speaker] = (gpt_cond_latent, speaker_embedding)
 
-    def synthesize(self, text: str, speaker: str) -> Tuple[np.ndarray, int]:
+    def synthesize(self, text: str, speaker: str) -> Tuple[np.ndarray, int, Dict[str, Any]]:
         if speaker not in self.latents:
             raise RuntimeError(f"Speaker '{speaker}' is not present in the XTTS cache")
         gpt_cond_latent, speaker_embedding = self.latents[speaker]
-        chunks = split_text_for_tts(text, self.max_chars)
+        tts_text = sanitize_tts_text(text)
+        chunks = split_text_for_tts(tts_text, self.max_chars)
         if not chunks:
-            return np.zeros(1, dtype=np.float32), 24000
+            return np.zeros(1, dtype=np.float32), 24000, {"tts_text": tts_text, "tts_chunks": 0}
         rendered = []
         silence_ms = int(os.environ.get("XTTS_INTER_CHUNK_SILENCE_MS", "120"))
         silence = np.zeros(int(24000 * silence_ms / 1000.0), dtype=np.float32)
         for idx, chunk in enumerate(chunks, start=1):
+            chunk = strip_terminal_tts_punctuation(chunk)
+            if not chunk:
+                continue
             try:
                 out = self.model.inference(
                     chunk,
@@ -718,8 +776,14 @@ class XTTSCloner:
             if idx < len(chunks) and silence.size:
                 rendered.append(silence)
         if not rendered:
-            return np.zeros(1, dtype=np.float32), 24000
-        return np.concatenate(rendered).astype(np.float32, copy=False), 24000
+            return np.zeros(1, dtype=np.float32), 24000, {"tts_text": tts_text, "tts_chunks": len(chunks)}
+        wav = np.concatenate(rendered).astype(np.float32, copy=False)
+        final_wav, final_duration = passthrough_tts_audio(wav, 24000)
+        return final_wav, 24000, {
+            "tts_text": tts_text,
+            "tts_chunks": len(chunks),
+            "tts_duration": final_duration,
+        }
 
 
 def assemble_timeline(translated: List[Dict], cloner: XTTSCloner, total_duration: float, out_wav: Path, manifest_path: Path):
@@ -744,8 +808,10 @@ def assemble_timeline(translated: List[Dict], cloner: XTTSCloner, total_duration
         if not text:
             continue
         seg_path = segments_dir / f"seg_{idx:05d}.wav"
-        text_sha1 = hashlib.sha1(text.encode("utf-8")).hexdigest()
-        expected_chunks = len(split_text_for_tts(text, cloner.max_chars))
+        tts_text = sanitize_tts_text(text)
+        text_sha1 = hashlib.sha1(tts_text.encode("utf-8")).hexdigest()
+        expected_chunks = len(split_text_for_tts(tts_text, cloner.max_chars))
+        target_duration = max(0.0, float(utt.get("end", 0.0)) - float(utt.get("start", 0.0)))
         previous = existing_manifest.get(idx)
         item = None
         if seg_path.exists() and seg_path.stat().st_size > 0:
@@ -754,6 +820,7 @@ def assemble_timeline(translated: List[Dict], cloner: XTTSCloner, total_duration
                 and previous.get("text_sha1") == text_sha1
                 and int(previous.get("tts_chunks", 0) or 0) == expected_chunks
                 and int(previous.get("tts_split_limit", 0) or 0) == cloner.max_chars
+                and int(previous.get("tts_pacing_version", 0) or 0) == 4
             )
             if compatible:
                 try:
@@ -766,6 +833,8 @@ def assemble_timeline(translated: List[Dict], cloner: XTTSCloner, total_duration
                         "tts_duration": dur,
                         "tts_chunks": expected_chunks,
                         "tts_split_limit": cloner.max_chars,
+                        "tts_pacing_version": 4,
+                        "tts_text": tts_text,
                         "text_sha1": text_sha1,
                     }
                     LOG.info("TTS %d/%d already exists: reusing %s", idx, len(translated), seg_path.name)
@@ -776,13 +845,13 @@ def assemble_timeline(translated: List[Dict], cloner: XTTSCloner, total_duration
                     except Exception:
                         pass
             else:
-                LOG.info("TTS %d/%d exists but was created with an older or incompatible split policy: regenerating %s", idx, len(translated), seg_path.name)
+                LOG.info("TTS %d/%d exists but was created with an older or incompatible TTS policy: regenerating %s", idx, len(translated), seg_path.name)
                 try:
                     seg_path.unlink(missing_ok=True)
                 except Exception:
                     pass
         if item is None:
-            wav, sr = cloner.synthesize(text, utt["speaker"])
+            wav, sr, synth_meta = cloner.synthesize(text, utt["speaker"])
             sf.write(seg_path, wav, sr, subtype="PCM_16")
             dur = len(wav) / sr
             item = {
@@ -791,8 +860,10 @@ def assemble_timeline(translated: List[Dict], cloner: XTTSCloner, total_duration
                 "tts_path": str(seg_path),
                 "tts_sr": sr,
                 "tts_duration": dur,
-                "tts_chunks": expected_chunks,
+                "tts_chunks": int(synth_meta.get("tts_chunks", expected_chunks) or expected_chunks),
                 "tts_split_limit": cloner.max_chars,
+                "tts_pacing_version": 4,
+                "tts_text": synth_meta.get("tts_text", tts_text),
                 "text_sha1": text_sha1,
             }
             if idx % 10 == 0 or idx == len(translated):
@@ -961,6 +1032,7 @@ def main():
             utterances = build_utterances(asr_segments, diar_segments)
             save_json(utterances_json, utterances)
 
+        translation_was_just_created = False
         if translated_json.exists() and translated_json.stat().st_size > 0:
             LOG.info("Translation already exists. Reusing it.")
             translated_payload = load_json(translated_json)
@@ -977,6 +1049,12 @@ def main():
                 "target_tts_lang": target_lang,
                 "items": translated,
             })
+            translation_was_just_created = True
+            LOG.info("Translation JSON created: %s", translated_json)
+
+        if translation_was_just_created and not prompt_before_dubbing_if_translation_was_just_created(translated_json):
+            LOG.info("Stopping before dubbing as requested.")
+            return
 
         if dubbed_wav.exists() and dubbed_wav.stat().st_size > 0:
             LOG.info("Dubbed audio already exists. Skipping TTS/mix: %s", dubbed_wav.name)
