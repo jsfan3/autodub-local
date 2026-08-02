@@ -21,9 +21,11 @@ The pipeline is:
 
 The script supports checkpoint/resume, so it can be interrupted and restarted without redoing every completed step.
 
-## Tested environment
+## Tested environments
 
 This script has been tested on:
+
+### Linux environment
 
 - **OS:** Linux Mint 22
 - **Python:** 3.12.3
@@ -32,13 +34,32 @@ This script has been tested on:
 - **RAM:** 16 GB
 - **GPU:** NVIDIA GeForce GTX 1050 Mobile, 4 GB VRAM
 
-### Notes on GPU behavior on the tested machine
+#### Notes on GPU behavior on the tested Linux machine
 
 On the tested system, the script works correctly, but only part of the pipeline runs on GPU.
 
 On this hardware, `faster-whisper` can use CUDA, while the PyTorch-based stages (`pyannote.audio` diarization and XTTS) fall back to CPU because the GTX 1050 (`sm_61`) is not supported by the installed PyTorch/CUDA build.
 
 On newer NVIDIA GPUs supported by the installed PyTorch build, **the script is designed to run the entire pipeline on GPU. CPU is used only as a fallback when GPU execution is not available or not compatible**.
+
+### macOS environment (CPU-only)
+
+- **OS:** macOS Sequoia 15.7.8
+- **Python:** 3.12 (required, via Homebrew)
+- **Laptop:** MacBook Air Intel (2020)
+- **CPU:** Intel Core i5
+- **RAM:** 8 GB
+- **GPU:** Intel Iris Plus Graphics (CPU-only mode)
+
+#### Notes on macOS testing
+
+On macOS Sequoia with Intel hardware, the script runs in **CPU-only mode**. All pipeline stages (`faster-whisper`, `pyannote.audio`, NLLB, and XTTS) execute on the CPU.
+
+**Important for macOS users:**
+- Python 3.12 must be installed via Homebrew (`brew install python@3.12`)
+- The default Python 3.13 on macOS Sequoia is **not compatible** with PyTorch
+- Processing times will be significantly longer compared to GPU-enabled systems
+- Recommended for testing with short videos (2-5 minutes) before processing longer content
 
 ## Compatibility notes
 
