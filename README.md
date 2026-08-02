@@ -227,6 +227,49 @@ NUM_SPEAKERS=1 \
 ./autodub_local.sh
 ```
 
+English → Italian example:
+
+```bash
+SOURCE_LANG=en \
+TARGET_LANG=it \
+NLLB_SRC_LANG=eng_Latn \
+NLLB_TGT_LANG=ita_Latn \
+NUM_SPEAKERS=2 \
+./autodub_local.sh
+```
+
+### Using Google Translate instead of local NLLB
+
+During the first run, the script will prompt you to choose between:
+
+1. **Local NLLB** (offline, requires model download, slower but no API limits)
+2. **Google Translate** (online, free via unofficial API, faster but requires internet)
+
+To use Google Translate non-interactively, set the environment variable:
+
+```bash
+TRANSLATION_METHOD=google \
+SOURCE_LANG=en \
+TARGET_LANG=it \
+./autodub_local.sh
+```
+
+Or for local NLLB (default):
+
+```bash
+TRANSLATION_METHOD=local \
+SOURCE_LANG=en \
+TARGET_LANG=it \
+./autodub_local.sh
+```
+
+**Notes on Google Translate:**
+- Requires internet connection
+- Uses the `deep-translator` library (unofficial API, more reliable than googletrans)
+- May have rate limits for large batches
+- Automatically installed when selected
+- Translation results are cached in the `.translated.json` file like NLLB
+
 ## Supported languages
 
 ### Whisper / NLLB
