@@ -174,8 +174,10 @@ if [[ -z "${HF_TOKEN:-}" ]]; then
 fi
 
 # Prompt for translation method selection
-TRANSLATION_METHOD="${TRANSLATION_METHOD:-local}"
-if [[ -z "${TRANSLATION_METHOD_SET:-}" ]]; then
+# If TRANSLATION_METHOD is set via environment, use it directly without prompting
+if [[ -n "${TRANSLATION_METHOD:-}" ]]; then
+  info "Using ${TRANSLATION_METHOD} Translate for translation (from environment)"
+else
   echo
   echo "Choose translation method:"
   echo "  1) Local NLLB (offline, requires model download)"
@@ -192,8 +194,8 @@ if [[ -z "${TRANSLATION_METHOD_SET:-}" ]]; then
       info "Using local NLLB for translation"
       ;;
   esac
-  export TRANSLATION_METHOD
 fi
+export TRANSLATION_METHOD
 
 if [[ ! -d "$VENV_DIR" ]]; then
   info "Creating the local Python virtual environment..."
@@ -1415,6 +1417,8 @@ export XTTS_REPETITION_PENALTY="${XTTS_REPETITION_PENALTY:-2.0}"
 export AAC_BITRATE="${AAC_BITRATE:-192k}"
 export XTTS_INTER_CHUNK_SILENCE_MS="${XTTS_INTER_CHUNK_SILENCE_MS:-120}"
 export LOG_LEVEL="${LOG_LEVEL:-INFO}"
+# Fix for OpenMP error on macOS with faster-whisper and other ML libraries
+export KMP_DUPLICATE_LIB_OK="TRUE"
 
 info "Starting the local dubbing pipeline with checkpoint/resume support..."
 python "$PY_SCRIPT"
