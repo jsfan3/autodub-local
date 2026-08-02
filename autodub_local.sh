@@ -221,7 +221,7 @@ if [[ "$TRANSLATION_METHOD" == "google" ]]; then
   google_imports_ok() {
     python - <<'PY' >/dev/null 2>&1
 mods = [
-    'torch', 'torchaudio', 'faster_whisper', 'pyannote.audio', 'soundfile', 'numpy', 'tqdm', 'deep_translator'
+    'torch', 'torchaudio', 'faster_whisper', 'pyannote.audio', 'soundfile', 'numpy', 'tqdm', 'deep_translator', 'librosa'
 ]
 for m in mods:
     __import__(m)
@@ -248,7 +248,8 @@ PY
       "soundfile>=0.12.1" \
       "numpy>=1.26,<2.0" \
       "tqdm>=4.66" \
-      "deep-translator"
+      "deep-translator" \
+      "librosa"
   fi
 else
   # Local NLLB mode: full packages including coqui-tts and transformers
