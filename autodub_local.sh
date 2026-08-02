@@ -212,6 +212,7 @@ import logging
 import hashlib
 import subprocess
 import re
+import shutil
 from pathlib import Path
 from collections import defaultdict
 from typing import Dict, List, Tuple, Optional, Any
@@ -786,6 +787,47 @@ class XTTSCloner:
         }
 
 
+def stretch_audio_to_duration(input_wav: Path, output_wav: Path, target_duration: float):
+    """
+    Applica time-stretching all'audio in input per adattarlo alla durata target.
+    Usa ffmpeg con il filtro atempo. Il pitch rimane invariato.
+    """
+    if target_duration <= 0:
+        LOG.warning("Target duration is <= 0, skipping stretch for %s", input_wav.name)
+        shutil.copy2(input_wav, output_wav)
+        return
+
+    current_duration = ffprobe_audio_duration(input_wav)
+    if current_duration <= 0:
+        raise RuntimeError(f"Invalid audio duration for {input_wav}")
+
+    ratio = target_duration / current_duration
+    # atempo supporta range 0.5-2.0. Se il ratio è fuori, bisogna concatenare più filtri o accettare limiti.
+    # Per semplicità, clamping a 0.5-2.0. Se serve di più, si potrebbe iterare, ma per ora ci limitiamo.
+    if ratio < 0.5:
+        LOG.warning("Stretch ratio %.2f too small (min 0.5), clamping to 0.5 for %s", ratio, input_wav.name)
+        ratio = 0.5
+    elif ratio > 2.0:
+        LOG.warning("Stretch ratio %.2f too large (max 2.0), clamping to 2.0 for %s", ratio, input_wav.name)
+        ratio = 2.0
+    
+    # Se il ratio è molto vicino a 1, evitiamo di processare inutilmente
+    if 0.95 <= ratio <= 1.05:
+        shutil.copy2(input_wav, output_wav)
+        LOG.info("Duration difference negligible, copying as-is: %s", input_wav.name)
+        return
+
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(input_wav),
+        "-filter:a", f"atempo={ratio:.4f}",
+        "-ar", "24000", # Manteniamo il sample rate fisso come atteso dallo script
+        str(output_wav)
+    ]
+    run(cmd)
+    LOG.info("Stretched %s from %.2fs to %.2fs (ratio=%.2f)", input_wav.name, current_duration, target_duration, ratio)
+
+
 def assemble_timeline(translated: List[Dict], cloner: XTTSCloner, total_duration: float, out_wav: Path, manifest_path: Path):
     segments_dir = out_wav.parent / "tts_segments"
     segments_dir.mkdir(parents=True, exist_ok=True)
@@ -868,6 +910,33 @@ def assemble_timeline(translated: List[Dict], cloner: XTTSCloner, total_duration
             }
             if idx % 10 == 0 or idx == len(translated):
                 LOG.info("Generated TTS %d/%d", idx, len(translated))
+        
+        # Applicazione dello stretching temporale per adattare la durata del TTS a quella originale
+        stretched_seg_path = segments_dir / f"seg_{idx:05d}_stretched.wav"
+        if target_duration > 0:
+            current_tts_dur = item["tts_duration"]
+            # Applichiamo stretching solo se la differenza è significativa (>5%)
+            ratio = target_duration / current_tts_dur if current_tts_dur > 0 else 1.0
+            if ratio < 0.95 or ratio > 1.05:
+                if not stretched_seg_path.exists():
+                    stretch_audio_to_duration(Path(item["tts_path"]), stretched_seg_path, target_duration)
+                # Aggiorniamo l'item per puntare al file stretched
+                stretched_dur = ffprobe_audio_duration(stretched_seg_path)
+                item = {
+                    **item,
+                    "tts_path": str(stretched_seg_path),
+                    "tts_duration": stretched_dur,
+                    "stretched": True,
+                }
+                LOG.info("Using stretched TTS for segment %d: %.2fs -> %.2fs", idx, current_tts_dur, target_duration)
+            else:
+                # Nessuno stretching necessario, assicuriamoci che il percorso sia quello originale
+                if stretched_seg_path.exists():
+                    stretched_seg_path.unlink(missing_ok=True)
+                item = {**item, "stretched": False}
+        else:
+            item = {**item, "stretched": False}
+        
         rendered.append(item)
         max_end = max(max_end, utt["start"] + item["tts_duration"])
         if idx % 20 == 0 or idx == len(translated):
