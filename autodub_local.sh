@@ -249,7 +249,8 @@ PY
       "numpy>=1.26,<2.0" \
       "tqdm>=4.66" \
       "deep-translator" \
-      "librosa"
+      "librosa" \
+      "numba<0.61"
   fi
 else
   # Local NLLB mode: full packages including coqui-tts and transformers
@@ -278,7 +279,9 @@ else
       "spacy>=3.8,<4" \
       "soundfile>=0.12.1" \
       "numpy>=1.26,<2.0" \
-      "tqdm>=4.66"
+      "tqdm>=4.66" \
+      "librosa" \
+      "numba<0.61"
   fi
 fi
 

@@ -1,1 +1,53 @@
-Nothing needs to be added to .gitignore since only a shell script file (`autodub_local.sh`) was modified and no build artifacts, dependencies, or temporary files were detected in the changes.
+```
+# Environment
+.env
+.env.local
+*.env.*
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+
+# Editors
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.coverage
+coverage/
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Build results
+dist/
+build/
+*.min.js
+*.min.css
+
+# IDE
+*.swp
+*.swo
+```
