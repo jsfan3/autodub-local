@@ -14,7 +14,7 @@ The pipeline is:
 2. Transcribe speech with `faster-whisper`
 3. Run speaker diarization with `pyannote.audio`
 4. Rebuild larger speaker turns (“utterances”)
-5. Translate the utterances with NLLB
+5. Translate the utterances with **NLLB (local)** or **Google Translate (online)**
 6. Generate target-language speech with XTTS v2 using per-speaker reference clips
 7. Assemble the dubbed audio timeline
 8. Mux the new audio into the original MP4 without re-encoding the video stream
@@ -53,13 +53,49 @@ On newer NVIDIA GPUs supported by the installed PyTorch build, **the script is d
 
 #### Notes on macOS testing
 
-On macOS Sequoia with Intel hardware, the script runs in **CPU-only mode**. All pipeline stages (`faster-whisper`, `pyannote.audio`, NLLB, and XTTS) execute on the CPU.
+On macOS Sequoia with Intel hardware, the script runs in **CPU-only mode**. All pipeline stages (`faster-whisper`, `pyannote.audio`, translation, and XTTS) execute on the CPU.
 
 **Important for macOS users:**
 - Python 3.12 must be installed via Homebrew (`brew install python@3.12`)
 - The default Python 3.13 on macOS Sequoia is **not compatible** with PyTorch
 - Processing times will be significantly longer compared to GPU-enabled systems
 - Recommended for testing with short videos (2-5 minutes) before processing longer content
+- **Recommended**: Use Google Translate (`TRANSLATION_METHOD=google`) to avoid downloading the large NLLB model
+
+## Quick start: Test with the included sample video
+
+**Highly recommended for first-time users on all platforms (Linux, macOS, etc.)**: Before processing your own videos, test the pipeline with the included sample video `test.mp4` to verify that everything works correctly on your system.
+
+### About the test video
+
+- **Title**: "Dr. Richard Stallman: Free/Libre Software And Our Freedom: Our shield against many digital injustices"
+- **Source**: https://nojs.us/
+- **License**: CC BY-SA 4.0 (Creative Commons Attribution-ShareAlike 4.0 International)
+- **Duration**: ~3 minutes (ideal for quick testing)
+
+To test with the sample video:
+
+```bash
+# Using Google Translate (recommended for macOS and quick testing)
+TRANSLATION_METHOD=google \
+SOURCE_LANG=en \
+TARGET_LANG=it \
+NUM_SPEAKERS=2 \
+./autodub_local.sh
+```
+
+Or with local NLLB translation:
+
+```bash
+# Using local NLLB (offline, requires model download)
+TRANSLATION_METHOD=local \
+SOURCE_LANG=en \
+TARGET_LANG=it \
+NLLB_SRC_LANG=eng_Latn \
+NLLB_TGT_LANG=ita_Latn \
+NUM_SPEAKERS=2 \
+./autodub_local.sh
+```
 
 ## Compatibility notes
 
@@ -67,6 +103,7 @@ The current script is primarily aimed at:
 
 - Linux Mint / Ubuntu / Debian-like systems
 - systems with `apt-get`
+- macOS (with Python 3.12 via Homebrew, CPU-only mode)
 - local execution with enough disk space for models and temporary audio files (for example, dubbing a two-hour video requires about 20 GiB for downloaded software and temporary audio files)
 
 It may work on other Linux distributions, but the automatic system dependency installation assumes `apt-get`.
@@ -77,11 +114,13 @@ This is **not** a quick script.
 
 A first run can take a very long time because it may need to download:
 
-- PyTorch and CUDA runtime packages
+- PyTorch and CUDA runtime packages (or CPU-only PyTorch on macOS)
 - Whisper model weights
-- NLLB model weights
+- NLLB model weights (only if using local translation, not needed for Google Translate)
 - XTTS model weights
 - Python dependencies
+
+**Note for macOS users**: When using Google Translate (`TRANSLATION_METHOD=google`), the NLLB model is not required, reducing download size and setup time.
 
 On older hardware or CPU-heavy fallback paths, a single long video can require **many hours**.
 
@@ -167,10 +206,11 @@ You do **not** need to edit the script to process different MP4 files as long as
 
 | Variable | Default | Meaning |
 |---|---:|---|
+| `TRANSLATION_METHOD` | `local` | Translation method: `local` (NLLB) or `google` (Google Translate) |
 | `SOURCE_LANG` | `ru` | Source language for Whisper |
 | `TARGET_LANG` | `it` | Target language for TTS/output naming |
-| `NLLB_SRC_LANG` | `rus_Cyrl` | Source language code for NLLB |
-| `NLLB_TGT_LANG` | `ita_Latn` | Target language code for NLLB |
+| `NLLB_SRC_LANG` | `rus_Cyrl` | Source language code for NLLB (only used with `TRANSLATION_METHOD=local`) |
+| `NLLB_TGT_LANG` | `ita_Latn` | Target language code for NLLB (only used with `TRANSLATION_METHOD=local`) |
 | `WHISPER_MODEL` | `medium` | Whisper model size |
 | `NUM_SPEAKERS` | `2` | Expected number of speakers for diarization |
 | `MAX_REF_CLIPS` | `3` | Reference clips per speaker for XTTS |
@@ -199,15 +239,16 @@ You do **not** need to edit the script to process different MP4 files as long as
 
 ### Examples
 
-Default Russian → Italian run:
+Default Russian → Italian run (local NLLB):
 
 ```bash
 ./autodub_local.sh
 ```
 
-Explicit Russian → Italian run:
+Explicit Russian → Italian run with local NLLB:
 
 ```bash
+TRANSLATION_METHOD=local \
 SOURCE_LANG=ru \
 TARGET_LANG=it \
 NLLB_SRC_LANG=rus_Cyrl \
@@ -216,20 +257,20 @@ NUM_SPEAKERS=2 \
 ./autodub_local.sh
 ```
 
-Example for a different language pair:
+Example for a different language pair (Google Translate):
 
 ```bash
+TRANSLATION_METHOD=google \
 SOURCE_LANG=de \
 TARGET_LANG=en \
-NLLB_SRC_LANG=deu_Latn \
-NLLB_TGT_LANG=eng_Latn \
 NUM_SPEAKERS=1 \
 ./autodub_local.sh
 ```
 
-English → Italian example:
+English → Italian example with local NLLB:
 
 ```bash
+TRANSLATION_METHOD=local \
 SOURCE_LANG=en \
 TARGET_LANG=it \
 NLLB_SRC_LANG=eng_Latn \
@@ -238,14 +279,31 @@ NUM_SPEAKERS=2 \
 ./autodub_local.sh
 ```
 
+English → Italian example with Google Translate (macOS compatible):
+
+```bash
+TRANSLATION_METHOD=google \
+SOURCE_LANG=en \
+TARGET_LANG=it \
+NUM_SPEAKERS=2 \
+./autodub_local.sh
+```
+
 ### Using Google Translate instead of local NLLB
+
+**Recommended for all users**: For initial testing and quick validation, use Google Translate (`TRANSLATION_METHOD=google`). This is especially recommended for:
+
+- **macOS users**: Avoids downloading the large NLLB model (several GB), reducing setup time and disk space
+- **All platforms**: Faster initial testing with the included sample video `test.mp4`
+- **Users with limited disk space**: No need to store the NLLB model locally
+- **Quick language pair testing**: Easily test different source/target language combinations
 
 During the first run, the script will prompt you to choose between:
 
 1. **Local NLLB** (offline, requires model download, slower but no API limits)
 2. **Google Translate** (online, free via unofficial API, faster but requires internet)
 
-To use Google Translate non-interactively, set the environment variable:
+To use Google Translate non-interactively, set the `TRANSLATION_METHOD` environment variable:
 
 ```bash
 TRANSLATION_METHOD=google \
@@ -269,6 +327,15 @@ TARGET_LANG=it \
 - May have rate limits for large batches
 - Automatically installed when selected
 - Translation results are cached in the `.translated.json` file like NLLB
+- **Recommended for macOS users**: Google Translate is lighter and avoids downloading the large NLLB model
+- **Recommended for initial testing**: Use with the included sample video `test.mp4` to quickly verify the pipeline works on your system
+
+**Notes on Local NLLB:**
+- Works completely offline after initial model download
+- Requires downloading the NLLB model (several GB)
+- Slower translation but no API rate limits
+- Requires the `transformers` library (included in full installation)
+- Better for production use with many videos or limited internet connectivity
 
 ## Supported languages
 

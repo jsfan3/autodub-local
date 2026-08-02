@@ -326,7 +326,6 @@ import librosa
 import torch
 from faster_whisper import WhisperModel
 from pyannote.audio import Pipeline as PyannotePipeline
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from TTS.api import TTS
 
 LOG = logging.getLogger("autodub")
@@ -651,6 +650,7 @@ def extract_reference_clips(audio_path: Path, diar_segments: List[Dict], work_di
 class Translator:
     """NLLB-based local translator."""
     def __init__(self, src_code: str, tgt_code: str, model_name: str = "facebook/nllb-200-distilled-600M"):
+        from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
         self.src_code = src_code
         self.tgt_code = tgt_code
         self.device = "cuda" if (os.environ.get("TRANSLATE_ON_GPU", "0") == "1" and torch_cuda_usable()) else "cpu"
