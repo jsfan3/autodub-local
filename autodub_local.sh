@@ -173,17 +173,18 @@ else
   fi
 
   info "Installing or updating local Python packages..."
+  # Use pyannote-audio 3.3.1 for macOS/Python 3.12 compatibility (requires torch>=2.0,<2.3)
   pip install \
     "faster-whisper==1.2.1" \
-    "pyannote-audio>=4.0.4" \
-    "transformers>=4.57.5,<5.0" \
+    "pyannote-audio==3.3.1" \
+    "transformers>=4.35,<5.0" \
     "sentencepiece>=0.2.0" \
-    "accelerate>=1.0.0" \
-    "huggingface-hub>=0.34.0" \
+    "accelerate>=0.25,<1.0" \
+    "huggingface-hub>=0.20,<0.24" \
     "coqui-tts==0.27.5" \
     "spacy>=3.8,<4" \
     "soundfile>=0.12.1" \
-    "numpy>=1.26" \
+    "numpy>=1.26,<2.0" \
     "tqdm>=4.66"
 fi
 
