@@ -326,9 +326,30 @@ import librosa
 import torch
 from faster_whisper import WhisperModel
 from pyannote.audio import Pipeline as PyannotePipeline
-from TTS.api import TTS
 
 LOG = logging.getLogger("autodub")
+
+# Lazy imports for optional modules (loaded only when needed)
+_TTS_API = None
+_TransformerTokenizer = None
+_TransformerModel = None
+
+
+def _get_tts_api():
+    """Lazy load TTS.api only when XTTS is actually used."""
+    global _TTS_API
+    if _TTS_API is None:
+        from TTS.api import TTS as _TTS_API
+    return _TTS_API
+
+
+def _get_transformer_modules():
+    """Lazy load transformers modules only when NLLB translation is actually used."""
+    global _TransformerTokenizer, _TransformerModel
+    if _TransformerTokenizer is None or _TransformerModel is None:
+        from transformers import AutoTokenizer as _TransformerTokenizer
+        from transformers import AutoModelForSeq2SeqLM as _TransformerModel
+    return _TransformerTokenizer, _TransformerModel
 
 LANG_MAP = {
     "af": "afr_Latn", "am": "amh_Ethi", "ar": "arb_Arab", "az": "azj_Latn",
@@ -650,7 +671,7 @@ def extract_reference_clips(audio_path: Path, diar_segments: List[Dict], work_di
 class Translator:
     """NLLB-based local translator."""
     def __init__(self, src_code: str, tgt_code: str, model_name: str = "facebook/nllb-200-distilled-600M"):
-        from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+        AutoTokenizer, AutoModelForSeq2SeqLM = _get_transformer_modules()
         self.src_code = src_code
         self.tgt_code = tgt_code
         self.device = "cuda" if (os.environ.get("TRANSLATE_ON_GPU", "0") == "1" and torch_cuda_usable()) else "cpu"
@@ -918,14 +939,15 @@ class XTTSCloner:
         self.tts_lang = XTTS_LANG_MAP[target_lang]
         preferred = detect_torch_device()
         self.device = preferred
+        TTS_API = _get_tts_api()
         try:
             LOG.info("Loading XTTS v2 on %s", self.device)
-            self.api = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+            self.api = TTS_API("tts_models/multilingual/multi-dataset/xtts_v2")
             self.api.to(self.device)
         except Exception as exc:
             LOG.exception("XTTS on %s failed, retrying on CPU: %s", self.device, exc)
             self.device = "cpu"
-            self.api = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+            self.api = TTS_API("tts_models/multilingual/multi-dataset/xtts_v2")
             self.api.to("cpu")
         self.model = self.api.synthesizer.tts_model
         self.latents = {}
