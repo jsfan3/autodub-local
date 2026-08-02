@@ -63,6 +63,39 @@ print('ok')
 PY
 }
 
+google_translate_module_ok() {
+  python - <<'PY' >/dev/null 2>&1
+try:
+    from deep_translator import GoogleTranslator
+    print('ok')
+except ImportError:
+    pass
+PY
+}
+
+download_google_translate_module() {
+  local module_url="https://raw.githubusercontent.com/user/repo/main/google_translate_module.py"
+  local module_path="${WORK_DIR}/google_translate_module.py"
+  
+  info "Downloading Google Translate module..."
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$module_url" -o "$module_path" 2>/dev/null || wget -q "$module_url" -O "$module_path"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q "$module_url" -O "$module_path"
+  else
+    warn "Neither curl nor wget available, cannot download Google Translate module"
+    return 1
+  fi
+  
+  if [[ -f "$module_path" ]]; then
+    info "Google Translate module downloaded successfully"
+    return 0
+  else
+    warn "Failed to download Google Translate module"
+    return 1
+  fi
+}
+
 info "Log: ${LOG_FILE}"
 auto_apt_install ffmpeg git-lfs python3
 
@@ -140,6 +173,28 @@ if [[ -z "${HF_TOKEN:-}" ]]; then
   exit 1
 fi
 
+# Prompt for translation method selection
+TRANSLATION_METHOD="${TRANSLATION_METHOD:-local}"
+if [[ -z "${TRANSLATION_METHOD_SET:-}" ]]; then
+  echo
+  echo "Choose translation method:"
+  echo "  1) Local NLLB (offline, requires model download)"
+  echo "  2) Google Translate (online, free via unofficial API)"
+  echo
+  read -r -p "Select method [1/local or 2/google]: " method_choice
+  case "$method_choice" in
+    2|google|Google|GOOGLE)
+      TRANSLATION_METHOD="google"
+      info "Using Google Translate for translation"
+      ;;
+    *)
+      TRANSLATION_METHOD="local"
+      info "Using local NLLB for translation"
+      ;;
+  esac
+  export TRANSLATION_METHOD
+fi
+
 if [[ ! -d "$VENV_DIR" ]]; then
   info "Creating the local Python virtual environment..."
   # Create virtual environment with explicit python3.12 for macOS compatibility
@@ -160,32 +215,70 @@ if command -v nvidia-smi >/dev/null 2>&1; then
   GPU_HINT=1
 fi
 
-if python_imports_ok; then
-  info "Python packages are already available in the virtual environment. Reinstallation skipped."
-else
-  if [[ "$GPU_HINT" -eq 1 ]]; then
-    info "NVIDIA GPU detected. Installing CUDA-enabled PyTorch and CUDA runtime packages for faster-whisper."
-    pip install --index-url https://download.pytorch.org/whl/cu128 "torch<2.9" "torchaudio<2.9"
-    pip install "nvidia-cublas-cu12" "nvidia-cudnn-cu12==9.*"
+# Determine which packages to install based on translation method
+if [[ "$TRANSLATION_METHOD" == "google" ]]; then
+  # Google Translate mode: minimal packages (no coqui-tts, no NLLB transformers)
+  google_imports_ok() {
+    python - <<'PY' >/dev/null 2>&1
+mods = [
+    'torch', 'torchaudio', 'faster_whisper', 'pyannote.audio', 'soundfile', 'numpy', 'tqdm', 'deep_translator'
+]
+for m in mods:
+    __import__(m)
+print('ok')
+PY
+  }
+  
+  if google_imports_ok; then
+    info "Python packages for Google Translate mode are already available. Reinstallation skipped."
   else
-    info "No NVIDIA GPU detected. Installing CPU-only PyTorch."
-    pip install --index-url https://download.pytorch.org/whl/cpu "torch<2.9" "torchaudio<2.9"
-  fi
+    if [[ "$GPU_HINT" -eq 1 ]]; then
+      info "NVIDIA GPU detected. Installing CUDA-enabled PyTorch and CUDA runtime packages for faster-whisper."
+      pip install --index-url https://download.pytorch.org/whl/cu128 "torch<2.9" "torchaudio<2.9"
+      pip install "nvidia-cublas-cu12" "nvidia-cudnn-cu12==9.*"
+    else
+      info "No NVIDIA GPU detected. Installing CPU-only PyTorch."
+      pip install --index-url https://download.pytorch.org/whl/cpu "torch<2.9" "torchaudio<2.9"
+    fi
 
-  info "Installing or updating local Python packages..."
-  # Use pyannote-audio 3.3.1 for macOS/Python 3.12 compatibility (requires torch>=2.0,<2.3)
-  pip install \
-    "faster-whisper==1.2.1" \
-    "pyannote-audio==3.3.1" \
-    "transformers>=4.35,<5.0" \
-    "sentencepiece>=0.2.0" \
-    "accelerate>=0.25,<1.0" \
-    "huggingface-hub>=0.34,<1.0" \
-    "coqui-tts==0.27.5" \
-    "spacy>=3.8,<4" \
-    "soundfile>=0.12.1" \
-    "numpy>=1.26,<2.0" \
-    "tqdm>=4.66"
+    info "Installing or updating Python packages for Google Translate mode..."
+    pip install \
+      "faster-whisper==1.2.1" \
+      "pyannote-audio==3.3.1" \
+      "soundfile>=0.12.1" \
+      "numpy>=1.26,<2.0" \
+      "tqdm>=4.66" \
+      "deep-translator"
+  fi
+else
+  # Local NLLB mode: full packages including coqui-tts and transformers
+  if python_imports_ok; then
+    info "Python packages are already available in the virtual environment. Reinstallation skipped."
+  else
+    if [[ "$GPU_HINT" -eq 1 ]]; then
+      info "NVIDIA GPU detected. Installing CUDA-enabled PyTorch and CUDA runtime packages for faster-whisper."
+      pip install --index-url https://download.pytorch.org/whl/cu128 "torch<2.9" "torchaudio<2.9"
+      pip install "nvidia-cublas-cu12" "nvidia-cudnn-cu12==9.*"
+    else
+      info "No NVIDIA GPU detected. Installing CPU-only PyTorch."
+      pip install --index-url https://download.pytorch.org/whl/cpu "torch<2.9" "torchaudio<2.9"
+    fi
+
+    info "Installing or updating local Python packages for NLLB mode..."
+    # Use pyannote-audio 3.3.1 for macOS/Python 3.12 compatibility (requires torch>=2.0,<2.3)
+    pip install \
+      "faster-whisper==1.2.1" \
+      "pyannote-audio==3.3.1" \
+      "transformers>=4.35,<5.0" \
+      "sentencepiece>=0.2.0" \
+      "accelerate>=0.25,<1.0" \
+      "huggingface-hub>=0.34,<1.0" \
+      "coqui-tts==0.27.5" \
+      "spacy>=3.8,<4" \
+      "soundfile>=0.12.1" \
+      "numpy>=1.26,<2.0" \
+      "tqdm>=4.66"
+  fi
 fi
 
 if [[ "$GPU_HINT" -eq 1 ]]; then
@@ -552,6 +645,7 @@ def extract_reference_clips(audio_path: Path, diar_segments: List[Dict], work_di
 
 
 class Translator:
+    """NLLB-based local translator."""
     def __init__(self, src_code: str, tgt_code: str, model_name: str = "facebook/nllb-200-distilled-600M"):
         self.src_code = src_code
         self.tgt_code = tgt_code
@@ -578,14 +672,116 @@ class Translator:
         return [t.strip() for t in txt]
 
 
-def translate_utterances(utterances: List[Dict], src_lang: str, detected_lang: str, target_lang: str) -> Tuple[List[Dict], str]:
-    src_code = src_lang if src_lang != "auto" else LANG_MAP.get(detected_lang)
-    if src_code is None:
-        raise RuntimeError(
-            f"Detected source language '{detected_lang}' is not mapped to NLLB. "
-            f"Set NLLB_SRC_LANG explicitly, for example rus_Cyrl."
-        )
-    translator = Translator(src_code=src_code, tgt_code=target_lang)
+class GoogleTranslatorWrapper:
+    """Google Translate wrapper using deep-translator library."""
+    
+    def __init__(self, src_lang: str, tgt_lang: str):
+        """
+        Initialize Google Translator.
+        
+        Args:
+            src_lang: Source language code (e.g., 'en', 'it')
+            tgt_lang: Target language code (e.g., 'en', 'it')
+        """
+        try:
+            from deep_translator import GoogleTranslator
+            self.translator = GoogleTranslator(source=src_lang, target=tgt_lang)
+            self.src_lang = src_lang
+            self.tgt_lang = tgt_lang
+            LOG.info("Initialized Google Translator (deep-translator): %s -> %s", src_lang, tgt_lang)
+        except ImportError:
+            raise RuntimeError("deep-translator library not available. Install with: pip install deep-translator")
+    
+    def translate_batch(self, texts: List[str]) -> List[str]:
+        """Translate a batch of texts using Google Translate."""
+        results = []
+        for text in texts:
+            if not text or not text.strip():
+                results.append("")
+                continue
+            try:
+                result = self.translator.translate(text)
+                results.append(result.strip())
+            except Exception as e:
+                LOG.warning("Google Translate error for '%s': %s", text[:50], e)
+                results.append(text)  # Return original on error
+        return results
+
+
+def get_translator(method: str, src_lang: str, tgt_lang: str, nllb_src_code: str = None, nllb_tgt_code: str = None):
+    """
+    Factory function to get the appropriate translator based on method.
+    
+    Args:
+        method: 'local' for NLLB, 'google' for Google Translate
+        src_lang: Source language code
+        tgt_lang: Target language code
+        nllb_src_code: NLLB source language code (only for local method)
+        nllb_tgt_code: NLLB target language code (only for local method)
+    
+    Returns:
+        Translator instance (either NLLB or Google)
+    """
+    if method == "google":
+        # Convert NLLB codes to Google Translate codes if needed
+        # Google uses simple 2-letter codes
+        gt_src = src_lang.split('_')[0] if '_' in src_lang else src_lang
+        gt_tgt = tgt_lang.split('_')[0] if '_' in tgt_lang else tgt_lang
+        # Handle special cases
+        code_map = {
+            'eng': 'en', 'ita': 'it', 'fra': 'fr', 'deu': 'de', 'spa': 'es',
+            'por': 'pt', 'rus': 'ru', 'jpn': 'ja', 'kor': 'ko', 'zho': 'zh-cn',
+            'nld': 'nl', 'pol': 'pl', 'tur': 'tr', 'ara': 'ar', 'hin': 'hi'
+        }
+        gt_src = code_map.get(gt_src, gt_src)
+        gt_tgt = code_map.get(gt_tgt, gt_tgt)
+        return GoogleTranslatorWrapper(gt_src, gt_tgt)
+    else:
+        return Translator(src_code=nllb_src_code, tgt_code=nllb_tgt_code)
+
+
+def translate_utterances(utterances: List[Dict], src_lang: str, detected_lang: str, target_lang: str, 
+                         translation_method: str = "local", nllb_src_code: str = None, 
+                         nllb_tgt_code: str = None) -> Tuple[List[Dict], str]:
+    """
+    Translate utterances using the specified method (local NLLB or Google Translate).
+    
+    Args:
+        utterances: List of utterance dictionaries
+        src_lang: Source language code
+        detected_lang: Detected language from Whisper
+        target_lang: Target language code
+        translation_method: 'local' for NLLB, 'google' for Google Translate
+        nllb_src_code: NLLB source language code (for local method)
+        nllb_tgt_code: NLLB target language code (for local method)
+    
+    Returns:
+        Tuple of (translated utterances, source code used)
+    """
+    # Determine source code based on method
+    if translation_method == "google":
+        # For Google Translate, use simple 2-letter codes
+        src_code = src_lang if src_lang != "auto" else detected_lang
+        if len(src_code) > 2:
+            src_code = src_lang.split('_')[0] if '_' in src_lang else detected_lang
+    else:
+        # For NLLB, use the full language code
+        src_code = src_lang if src_lang != "auto" else LANG_MAP.get(detected_lang)
+        if src_code is None:
+            raise RuntimeError(
+                f"Detected source language '{detected_lang}' is not mapped to NLLB. "
+                f"Set NLLB_SRC_LANG explicitly, for example rus_Cyrl."
+            )
+    
+    # Get appropriate translator
+    translator = get_translator(
+        method=translation_method,
+        src_lang=src_lang,
+        tgt_lang=target_lang,
+        nllb_src_code=nllb_src_code or src_code,
+        nllb_tgt_code=nllb_tgt_code or target_lang
+    )
+    
     batch_size = int(os.environ.get("TRANSLATE_BATCH", "12"))
     translated = []
     for i in range(0, len(utterances), batch_size):
@@ -596,12 +792,14 @@ def translate_utterances(utterances: List[Dict], src_lang: str, detected_lang: s
             item = dict(u)
             item["text_it"] = t
             translated.append(item)
-        LOG.info("Translation %d/%d", min(i + batch_size, len(utterances)), len(utterances))
-    if torch_cuda_usable():
+        LOG.info("Translation %d/%d (%s)", min(i + batch_size, len(utterances)), len(utterances), translation_method)
+    
+    if translation_method == "local" and torch_cuda_usable():
         try:
             torch.cuda.empty_cache()
         except Exception:
             pass
+    
     return translated, src_code
 
 
@@ -1108,24 +1306,34 @@ def main():
             save_json(utterances_json, utterances)
 
         translation_was_just_created = False
+        translation_method = os.environ.get("TRANSLATION_METHOD", "local")
         if translated_json.exists() and translated_json.stat().st_size > 0:
             LOG.info("Translation already exists. Reusing it.")
             translated_payload = load_json(translated_json)
             translated = translated_payload["items"]
             detected_lang = translated_payload.get("detected_whisper_lang", detected_lang)
             used_src_code = translated_payload.get("used_nllb_src", nllb_src_lang)
-            LOG.info("Loaded translation: src=%s tgt=%s items=%d", used_src_code, translated_payload.get("used_nllb_tgt", nllb_tgt_lang), len(translated))
+            used_method = translated_payload.get("translation_method", "local")
+            LOG.info("Loaded translation: src=%s tgt=%s items=%d method=%s", 
+                     used_src_code, translated_payload.get("used_nllb_tgt", nllb_tgt_lang), 
+                     len(translated), used_method)
         else:
-            translated, used_src_code = translate_utterances(utterances, nllb_src_lang, detected_lang, nllb_tgt_lang)
+            translated, used_src_code = translate_utterances(
+                utterances, nllb_src_lang, detected_lang, nllb_tgt_lang,
+                translation_method=translation_method,
+                nllb_src_code=nllb_src_lang,
+                nllb_tgt_code=nllb_tgt_lang
+            )
             save_json(translated_json, {
                 "detected_whisper_lang": detected_lang,
                 "used_nllb_src": used_src_code,
                 "used_nllb_tgt": nllb_tgt_lang,
+                "translation_method": translation_method,
                 "target_tts_lang": target_lang,
                 "items": translated,
             })
             translation_was_just_created = True
-            LOG.info("Translation JSON created: %s", translated_json)
+            LOG.info("Translation JSON created: %s (method: %s)", translated_json, translation_method)
 
         if translation_was_just_created and not prompt_before_dubbing_if_translation_was_just_created(translated_json):
             LOG.info("Stopping before dubbing as requested.")
