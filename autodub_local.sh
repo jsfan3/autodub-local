@@ -180,7 +180,7 @@ else
     "transformers>=4.35,<5.0" \
     "sentencepiece>=0.2.0" \
     "accelerate>=0.25,<1.0" \
-    "huggingface-hub>=0.20,<0.24" \
+    "huggingface-hub>=0.34,<1.0" \
     "coqui-tts==0.27.5" \
     "spacy>=3.8,<4" \
     "soundfile>=0.12.1" \
