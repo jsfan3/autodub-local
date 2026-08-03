@@ -63,6 +63,39 @@ print('ok')
 PY
 }
 
+google_translate_module_ok() {
+  python - <<'PY' >/dev/null 2>&1
+try:
+    from deep_translator import GoogleTranslator
+    print('ok')
+except ImportError:
+    pass
+PY
+}
+
+download_google_translate_module() {
+  local module_url="https://raw.githubusercontent.com/user/repo/main/google_translate_module.py"
+  local module_path="${WORK_DIR}/google_translate_module.py"
+  
+  info "Downloading Google Translate module..."
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$module_url" -o "$module_path" 2>/dev/null || wget -q "$module_url" -O "$module_path"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q "$module_url" -O "$module_path"
+  else
+    warn "Neither curl nor wget available, cannot download Google Translate module"
+    return 1
+  fi
+  
+  if [[ -f "$module_path" ]]; then
+    info "Google Translate module downloaded successfully"
+    return 0
+  else
+    warn "Failed to download Google Translate module"
+    return 1
+  fi
+}
+
 info "Log: ${LOG_FILE}"
 auto_apt_install ffmpeg git-lfs python3
 
@@ -122,8 +155,9 @@ if [[ -z "${HF_TOKEN:-}" ]]; then
   echo
   echo "A Hugging Face READ token is required for local pyannote diarization."
   echo "Before continuing, accept the model terms once at:"
-  echo "  1) https://huggingface.co/pyannote/speaker-diarization-community-1"
-  echo "  2) https://huggingface.co/settings/tokens  (create a READ token)"
+  echo "  1) https://huggingface.co/pyannote/speaker-diarization-3.1"
+  echo "  2) https://huggingface.co/pyannote/segmentation-3.0"
+  echo "  3) https://huggingface.co/settings/tokens  (create a READ token)"
   echo
   read -r -s -p "Paste the Hugging Face READ token here: " HF_TOKEN
   echo
@@ -140,9 +174,38 @@ if [[ -z "${HF_TOKEN:-}" ]]; then
   exit 1
 fi
 
+# Prompt for translation method selection
+# If TRANSLATION_METHOD is set via environment, use it directly without prompting
+if [[ -n "${TRANSLATION_METHOD:-}" ]]; then
+  info "Using ${TRANSLATION_METHOD} Translate for translation (from environment)"
+else
+  echo
+  echo "Choose translation method:"
+  echo "  1) Local NLLB (offline, requires model download)"
+  echo "  2) Google Translate (online, free via unofficial API)"
+  echo
+  read -r -p "Select method [1/local or 2/google]: " method_choice
+  case "$method_choice" in
+    2|google|Google|GOOGLE)
+      TRANSLATION_METHOD="google"
+      info "Using Google Translate for translation"
+      ;;
+    *)
+      TRANSLATION_METHOD="local"
+      info "Using local NLLB for translation"
+      ;;
+  esac
+fi
+export TRANSLATION_METHOD
+
 if [[ ! -d "$VENV_DIR" ]]; then
   info "Creating the local Python virtual environment..."
-  python3 -m venv "$VENV_DIR"
+  # Create virtual environment with explicit python3.12 for macOS compatibility
+  if command -v python3.12 &>/dev/null; then
+    python3.12 -m venv "$VENV_DIR"
+  else
+    python3 -m venv "$VENV_DIR"
+  fi
 fi
 
 # shellcheck disable=SC1091
@@ -155,31 +218,63 @@ if command -v nvidia-smi >/dev/null 2>&1; then
   GPU_HINT=1
 fi
 
-if python_imports_ok; then
-  info "Python packages are already available in the virtual environment. Reinstallation skipped."
-else
-  if [[ "$GPU_HINT" -eq 1 ]]; then
-    info "NVIDIA GPU detected. Installing CUDA-enabled PyTorch and CUDA runtime packages for faster-whisper."
-    pip install --index-url https://download.pytorch.org/whl/cu128 "torch<2.9" "torchaudio<2.9"
-    pip install "nvidia-cublas-cu12" "nvidia-cudnn-cu12==9.*"
-  else
-    info "No NVIDIA GPU detected. Installing CPU-only PyTorch."
-    pip install --index-url https://download.pytorch.org/whl/cpu "torch<2.9" "torchaudio<2.9"
-  fi
+# Determine which packages to install based on translation method
+if [[ "$TRANSLATION_METHOD" == "google" ]]; then
+  # Google Translate mode: minimal packages (no NLLB transformers)
+    if [[ "$GPU_HINT" -eq 1 ]]; then
+      info "NVIDIA GPU detected. Installing CUDA-enabled PyTorch and CUDA runtime packages for faster-whisper."
+      pip install --index-url https://download.pytorch.org/whl/cu128 "torch<2.9" "torchaudio<2.9"
+      pip install "nvidia-cublas-cu12" "nvidia-cudnn-cu12==9.*"
+    else
+      info "No NVIDIA GPU detected. Installing CPU-only PyTorch."
+      pip install --index-url https://download.pytorch.org/whl/cpu "torch<2.9" "torchaudio<2.9"
+    fi
 
-  info "Installing or updating local Python packages..."
-  pip install \
-    "faster-whisper==1.2.1" \
-    "pyannote-audio>=4.0.4" \
-    "transformers>=4.57.5,<5.0" \
-    "sentencepiece>=0.2.0" \
-    "accelerate>=1.0.0" \
-    "huggingface-hub>=0.34.0" \
-    "coqui-tts==0.27.5" \
-    "spacy>=3.8,<4" \
-    "soundfile>=0.12.1" \
-    "numpy>=1.26" \
-    "tqdm>=4.66"
+    info "Installing or updating Python packages for Google Translate mode..."
+    pip install \
+      "faster-whisper==1.2.1" \
+      "pyannote-audio==3.3.2" \
+      "transformers>=4.57,<5.0" \
+      "huggingface-hub>=0.34" \
+      "soundfile>=0.12.1" \
+      "numpy>=1.26,<2.0" \
+      "tqdm>=4.66" \
+      "deep-translator" \
+      "librosa" \
+      "numba<0.61" \
+      "coqui-tts==0.27.5" \
+      "spacy>=3.8,<4"
+else
+  # Local NLLB mode: full packages including transformers
+  if python_imports_ok; then
+    info "Python packages are already available in the virtual environment. Reinstallation skipped."
+  else
+    if [[ "$GPU_HINT" -eq 1 ]]; then
+      info "NVIDIA GPU detected. Installing CUDA-enabled PyTorch and CUDA runtime packages for faster-whisper."
+      pip install --index-url https://download.pytorch.org/whl/cu128 "torch<2.9" "torchaudio<2.9"
+      pip install "nvidia-cublas-cu12" "nvidia-cudnn-cu12==9.*"
+    else
+      info "No NVIDIA GPU detected. Installing CPU-only PyTorch."
+      pip install --index-url https://download.pytorch.org/whl/cpu "torch<2.9" "torchaudio<2.9"
+    fi
+
+    info "Installing or updating local Python packages for NLLB mode..."
+    # Use pyannote-audio 3.3.1 for macOS/Python 3.12 compatibility (requires torch>=2.0,<2.3)
+    pip install \
+      "faster-whisper==1.2.1" \
+      "pyannote-audio==3.3.2" \
+      "transformers>=4.57,<5.0" \
+      "sentencepiece>=0.2.0" \
+      "accelerate>=0.25,<1.0" \
+      "huggingface-hub>=0.34" \
+      "coqui-tts==0.27.5" \
+      "spacy>=3.8,<4" \
+      "soundfile>=0.12.1" \
+      "numpy>=1.26,<2.0" \
+      "tqdm>=4.66" \
+      "librosa" \
+      "numba<0.61"
+  fi
 fi
 
 if [[ "$GPU_HINT" -eq 1 ]]; then
@@ -212,6 +307,7 @@ import logging
 import hashlib
 import subprocess
 import re
+import shutil
 from pathlib import Path
 from collections import defaultdict
 from typing import Dict, List, Tuple, Optional, Any
@@ -222,10 +318,37 @@ import librosa
 import torch
 from faster_whisper import WhisperModel
 from pyannote.audio import Pipeline as PyannotePipeline
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-from TTS.api import TTS
+
+# Fix for PyTorch 2.6+ that breaks the loading of pyannote models
+_original_torch_load = torch.load
+def _patched_torch_load(*args, **kwargs):
+    kwargs["weights_only"] = False
+    return _original_torch_load(*args, **kwargs)
+torch.load = _patched_torch_load
 
 LOG = logging.getLogger("autodub")
+
+# Lazy imports for optional modules (loaded only when needed)
+_TTS_API = None
+_TransformerTokenizer = None
+_TransformerModel = None
+
+
+def _get_tts_api():
+    """Lazy load TTS.api only when XTTS is actually used."""
+    global _TTS_API
+    if _TTS_API is None:
+        from TTS.api import TTS as _TTS_API
+    return _TTS_API
+
+
+def _get_transformer_modules():
+    """Lazy load transformers modules only when NLLB translation is actually used."""
+    global _TransformerTokenizer, _TransformerModel
+    if _TransformerTokenizer is None or _TransformerModel is None:
+        from transformers import AutoTokenizer as _TransformerTokenizer
+        from transformers import AutoModelForSeq2SeqLM as _TransformerModel
+    return _TransformerTokenizer, _TransformerModel
 
 LANG_MAP = {
     "af": "afr_Latn", "am": "amh_Ethi", "ar": "arb_Arab", "az": "azj_Latn",
@@ -415,7 +538,7 @@ def diarize_audio(audio_path: Path, hf_token: str, num_speakers: int):
         try:
             LOG.info("pyannote diarization: device=%s num_speakers=%s", device, num_speakers)
             pipeline = PyannotePipeline.from_pretrained(
-                "pyannote/speaker-diarization-community-1",
+                "pyannote/speaker-diarization-3.1",
                 token=hf_token,
             )
             if device == "cuda":
@@ -450,7 +573,7 @@ def diarize_audio(audio_path: Path, hf_token: str, num_speakers: int):
     if "gated" in msg.lower() or "403" in msg or "401" in msg:
         raise RuntimeError(
             "Access to pyannote models was denied. Accept the terms manually at: "
-            "https://huggingface.co/pyannote/speaker-diarization-community-1 and then use a valid READ token."
+            "https://huggingface.co/pyannote/speaker-diarization-3.1 and then use a valid READ token."
         ) from last_exc
     raise RuntimeError(f"Diarization failed: {last_exc}")
 
@@ -541,11 +664,31 @@ def extract_reference_clips(audio_path: Path, diar_segments: List[Dict], work_di
     if not result:
         raise RuntimeError("Could not derive reference voice clips")
     LOG.info("Reference clips available for %d speakers", len(result))
+
+    # --- NUOVO: Pulizia dei reference clips per evitare che XTTS cloni il rumore ---
+    LOG.info("Cleaning reference clips to remove background noise...")
+    for spk, clip_list in result.items():
+        for clip_path in clip_list:
+            tmp_path = clip_path.replace(".wav", ".clean.wav")
+            # highpass rimuove i ronzii gravi (es. 50Hz), afftdn rimuove il rumore di fondo
+            cmd = [
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "-i", clip_path,
+                "-filter:a", "highpass=f=80,afftdn=nr=12",
+                "-ar", "24000", "-ac", "1", tmp_path
+            ]
+            run(cmd)
+            # Sostituisci il file originale con quello pulito
+            shutil.move(tmp_path, clip_path)
+    # ------------------------------------------------------------------------------
+    
     return result
 
 
 class Translator:
+    """NLLB-based local translator."""
     def __init__(self, src_code: str, tgt_code: str, model_name: str = "facebook/nllb-200-distilled-600M"):
+        AutoTokenizer, AutoModelForSeq2SeqLM = _get_transformer_modules()
         self.src_code = src_code
         self.tgt_code = tgt_code
         self.device = "cuda" if (os.environ.get("TRANSLATE_ON_GPU", "0") == "1" and torch_cuda_usable()) else "cpu"
@@ -571,14 +714,116 @@ class Translator:
         return [t.strip() for t in txt]
 
 
-def translate_utterances(utterances: List[Dict], src_lang: str, detected_lang: str, target_lang: str) -> Tuple[List[Dict], str]:
-    src_code = src_lang if src_lang != "auto" else LANG_MAP.get(detected_lang)
-    if src_code is None:
-        raise RuntimeError(
-            f"Detected source language '{detected_lang}' is not mapped to NLLB. "
-            f"Set NLLB_SRC_LANG explicitly, for example rus_Cyrl."
-        )
-    translator = Translator(src_code=src_code, tgt_code=target_lang)
+class GoogleTranslatorWrapper:
+    """Google Translate wrapper using deep-translator library."""
+    
+    def __init__(self, src_lang: str, tgt_lang: str):
+        """
+        Initialize Google Translator.
+        
+        Args:
+            src_lang: Source language code (e.g., 'en', 'it')
+            tgt_lang: Target language code (e.g., 'en', 'it')
+        """
+        try:
+            from deep_translator import GoogleTranslator
+            self.translator = GoogleTranslator(source=src_lang, target=tgt_lang)
+            self.src_lang = src_lang
+            self.tgt_lang = tgt_lang
+            LOG.info("Initialized Google Translator (deep-translator): %s -> %s", src_lang, tgt_lang)
+        except ImportError:
+            raise RuntimeError("deep-translator library not available. Install with: pip install deep-translator")
+    
+    def translate_batch(self, texts: List[str]) -> List[str]:
+        """Translate a batch of texts using Google Translate."""
+        results = []
+        for text in texts:
+            if not text or not text.strip():
+                results.append("")
+                continue
+            try:
+                result = self.translator.translate(text)
+                results.append(result.strip())
+            except Exception as e:
+                LOG.warning("Google Translate error for '%s': %s", text[:50], e)
+                results.append(text)  # Return original on error
+        return results
+
+
+def get_translator(method: str, src_lang: str, tgt_lang: str, nllb_src_code: str = None, nllb_tgt_code: str = None):
+    """
+    Factory function to get the appropriate translator based on method.
+    
+    Args:
+        method: 'local' for NLLB, 'google' for Google Translate
+        src_lang: Source language code
+        tgt_lang: Target language code
+        nllb_src_code: NLLB source language code (only for local method)
+        nllb_tgt_code: NLLB target language code (only for local method)
+    
+    Returns:
+        Translator instance (either NLLB or Google)
+    """
+    if method == "google":
+        # Convert NLLB codes to Google Translate codes if needed
+        # Google uses simple 2-letter codes
+        gt_src = src_lang.split('_')[0] if '_' in src_lang else src_lang
+        gt_tgt = tgt_lang.split('_')[0] if '_' in tgt_lang else tgt_lang
+        # Handle special cases
+        code_map = {
+            'eng': 'en', 'ita': 'it', 'fra': 'fr', 'deu': 'de', 'spa': 'es',
+            'por': 'pt', 'rus': 'ru', 'jpn': 'ja', 'kor': 'ko', 'zho': 'zh-cn',
+            'nld': 'nl', 'pol': 'pl', 'tur': 'tr', 'ara': 'ar', 'hin': 'hi'
+        }
+        gt_src = code_map.get(gt_src, gt_src)
+        gt_tgt = code_map.get(gt_tgt, gt_tgt)
+        return GoogleTranslatorWrapper(gt_src, gt_tgt)
+    else:
+        return Translator(src_code=nllb_src_code, tgt_code=nllb_tgt_code)
+
+
+def translate_utterances(utterances: List[Dict], src_lang: str, detected_lang: str, target_lang: str, 
+                         translation_method: str = "local", nllb_src_code: str = None, 
+                         nllb_tgt_code: str = None) -> Tuple[List[Dict], str]:
+    """
+    Translate utterances using the specified method (local NLLB or Google Translate).
+    
+    Args:
+        utterances: List of utterance dictionaries
+        src_lang: Source language code
+        detected_lang: Detected language from Whisper
+        target_lang: Target language code
+        translation_method: 'local' for NLLB, 'google' for Google Translate
+        nllb_src_code: NLLB source language code (for local method)
+        nllb_tgt_code: NLLB target language code (for local method)
+    
+    Returns:
+        Tuple of (translated utterances, source code used)
+    """
+    # Determine source code based on method
+    if translation_method == "google":
+        # For Google Translate, use simple 2-letter codes
+        src_code = src_lang if src_lang != "auto" else detected_lang
+        if len(src_code) > 2:
+            src_code = src_lang.split('_')[0] if '_' in src_lang else detected_lang
+    else:
+        # For NLLB, use the full language code
+        src_code = src_lang if src_lang != "auto" else LANG_MAP.get(detected_lang)
+        if src_code is None:
+            raise RuntimeError(
+                f"Detected source language '{detected_lang}' is not mapped to NLLB. "
+                f"Set NLLB_SRC_LANG explicitly, for example rus_Cyrl."
+            )
+    
+    # Get appropriate translator
+    translator = get_translator(
+        method=translation_method,
+        src_lang=src_lang,
+        tgt_lang=target_lang,
+        nllb_src_code=nllb_src_code or src_code,
+        nllb_tgt_code=nllb_tgt_code or target_lang
+    )
+    
     batch_size = int(os.environ.get("TRANSLATE_BATCH", "12"))
     translated = []
     for i in range(0, len(utterances), batch_size):
@@ -589,12 +834,14 @@ def translate_utterances(utterances: List[Dict], src_lang: str, detected_lang: s
             item = dict(u)
             item["text_it"] = t
             translated.append(item)
-        LOG.info("Translation %d/%d", min(i + batch_size, len(utterances)), len(utterances))
-    if torch_cuda_usable():
+        LOG.info("Translation %d/%d (%s)", min(i + batch_size, len(utterances)), len(utterances), translation_method)
+    
+    if translation_method == "local" and torch_cuda_usable():
         try:
             torch.cuda.empty_cache()
         except Exception:
             pass
+    
     return translated, src_code
 
 
@@ -709,14 +956,15 @@ class XTTSCloner:
         self.tts_lang = XTTS_LANG_MAP[target_lang]
         preferred = detect_torch_device()
         self.device = preferred
+        TTS_API = _get_tts_api()
         try:
             LOG.info("Loading XTTS v2 on %s", self.device)
-            self.api = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+            self.api = TTS_API("tts_models/multilingual/multi-dataset/xtts_v2")
             self.api.to(self.device)
         except Exception as exc:
             LOG.exception("XTTS on %s failed, retrying on CPU: %s", self.device, exc)
             self.device = "cpu"
-            self.api = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+            self.api = TTS_API("tts_models/multilingual/multi-dataset/xtts_v2")
             self.api.to("cpu")
         self.model = self.api.synthesizer.tts_model
         self.latents = {}
@@ -750,7 +998,7 @@ class XTTSCloner:
         if not chunks:
             return np.zeros(1, dtype=np.float32), 24000, {"tts_text": tts_text, "tts_chunks": 0}
         rendered = []
-        silence_ms = int(os.environ.get("XTTS_INTER_CHUNK_SILENCE_MS", "120"))
+        silence_ms = int(os.environ.get("XTTS_INTER_CHUNK_SILENCE_MS", "0"))
         silence = np.zeros(int(24000 * silence_ms / 1000.0), dtype=np.float32)
         for idx, chunk in enumerate(chunks, start=1):
             chunk = strip_terminal_tts_punctuation(chunk)
@@ -764,7 +1012,7 @@ class XTTSCloner:
                     speaker_embedding,
                     temperature=float(os.environ.get("XTTS_TEMPERATURE", "0.65")),
                     repetition_penalty=float(os.environ.get("XTTS_REPETITION_PENALTY", "2.0")),
-                    speed=float(os.environ.get("XTTS_SPEED", "1.0")),
+                    speed=float(os.environ.get("XTTS_SPEED", "1.3")),
                     enable_text_splitting=False,
                 )
             except Exception as exc:
@@ -778,12 +1026,66 @@ class XTTSCloner:
         if not rendered:
             return np.zeros(1, dtype=np.float32), 24000, {"tts_text": tts_text, "tts_chunks": len(chunks)}
         wav = np.concatenate(rendered).astype(np.float32, copy=False)
+        
+        # --- NUOVO: Taglia i silenzi eccessivi generati da XTTS ---
+        # XTTS spesso aggiunge secondi di silenzio a fine chunk, gonfiando la durata.
+        # Usiamo librosa per rimuovere i silenzi sotto i 30dB.
+        try:
+            wav_2d = wav[np.newaxis, :]
+            trimmed_wav, _ = librosa.effects.trim(wav_2d, top_db=30)
+            wav = trimmed_wav[0]
+            LOG.info("Trimmed silence from TTS chunk. New length: %.2f", len(wav) / 24000)
+        except Exception as e:
+            LOG.warning("Audio trimming failed: %s", e)
+        # --------------------------------------------------------
+        
         final_wav, final_duration = passthrough_tts_audio(wav, 24000)
         return final_wav, 24000, {
             "tts_text": tts_text,
             "tts_chunks": len(chunks),
             "tts_duration": final_duration,
         }
+
+
+def stretch_audio_to_duration(input_wav: Path, output_wav: Path, target_duration: float):
+    """
+    Applica time-stretching all'audio in input per adattarlo alla durata target.
+    Usa ffmpeg con il filtro atempo. Il pitch rimane invariato.
+    """
+    if target_duration <= 0:
+        LOG.warning("Target duration is <= 0, skipping stretch for %s", input_wav.name)
+        shutil.copy2(input_wav, output_wav)
+        return
+
+    current_duration = ffprobe_audio_duration(input_wav)
+    if current_duration <= 0:
+        raise RuntimeError(f"Invalid audio duration for {input_wav}")
+
+    ratio = current_duration / target_duration
+    # atempo supporta range 0.5-2.0. Se il ratio è fuori, bisogna concatenare più filtri o accettare limiti.
+    # Per semplicità, clamping a 0.5-2.0. Se serve di più, si potrebbe iterare, ma per ora ci limitiamo.
+    if ratio < 0.5:
+        LOG.warning("Stretch ratio %.2f too small (min 0.5), clamping to 0.5 for %s", ratio, input_wav.name)
+        ratio = 0.5
+    elif ratio > 2.0:
+        LOG.warning("Stretch ratio %.2f too large (max 2.0), clamping to 2.0 for %s", ratio, input_wav.name)
+        ratio = 2.0
+    
+    # Se il ratio è molto vicino a 1, evitiamo di processare inutilmente
+    if 0.95 <= ratio <= 1.05:
+        shutil.copy2(input_wav, output_wav)
+        LOG.info("Duration difference negligible, copying as-is: %s", input_wav.name)
+        return
+
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(input_wav),
+        "-filter:a", f"atempo={ratio:.4f}",
+        "-ar", "24000", # Manteniamo il sample rate fisso come atteso dallo script
+        str(output_wav)
+    ]
+    run(cmd)
+    LOG.info("Stretched %s from %.2fs to %.2fs (ratio=%.2f)", input_wav.name, current_duration, target_duration, ratio)
 
 
 def assemble_timeline(translated: List[Dict], cloner: XTTSCloner, total_duration: float, out_wav: Path, manifest_path: Path):
@@ -868,6 +1170,33 @@ def assemble_timeline(translated: List[Dict], cloner: XTTSCloner, total_duration
             }
             if idx % 10 == 0 or idx == len(translated):
                 LOG.info("Generated TTS %d/%d", idx, len(translated))
+        
+        # Applicazione dello stretching temporale per adattare la durata del TTS a quella originale
+        stretched_seg_path = segments_dir / f"seg_{idx:05d}_stretched.wav"
+        if target_duration > 0:
+            current_tts_dur = item["tts_duration"]
+            # Applichiamo stretching solo se la differenza è significativa (>5%)
+            ratio = target_duration / current_tts_dur if current_tts_dur > 0 else 1.0
+            if ratio < 0.95 or ratio > 1.05:
+                if not stretched_seg_path.exists():
+                    stretch_audio_to_duration(Path(item["tts_path"]), stretched_seg_path, target_duration)
+                # Aggiorniamo l'item per puntare al file stretched
+                stretched_dur = ffprobe_audio_duration(stretched_seg_path)
+                item = {
+                    **item,
+                    "tts_path": str(stretched_seg_path),
+                    "tts_duration": stretched_dur,
+                    "stretched": True,
+                }
+                LOG.info("Using stretched TTS for segment %d: %.2fs -> %.2fs", idx, current_tts_dur, target_duration)
+            else:
+                # Nessuno stretching necessario, assicuriamoci che il percorso sia quello originale
+                if stretched_seg_path.exists():
+                    stretched_seg_path.unlink(missing_ok=True)
+                item = {**item, "stretched": False}
+        else:
+            item = {**item, "stretched": False}
+        
         rendered.append(item)
         max_end = max(max_end, utt["start"] + item["tts_duration"])
         if idx % 20 == 0 or idx == len(translated):
@@ -1033,24 +1362,34 @@ def main():
             save_json(utterances_json, utterances)
 
         translation_was_just_created = False
+        translation_method = os.environ.get("TRANSLATION_METHOD", "local")
         if translated_json.exists() and translated_json.stat().st_size > 0:
             LOG.info("Translation already exists. Reusing it.")
             translated_payload = load_json(translated_json)
             translated = translated_payload["items"]
             detected_lang = translated_payload.get("detected_whisper_lang", detected_lang)
             used_src_code = translated_payload.get("used_nllb_src", nllb_src_lang)
-            LOG.info("Loaded translation: src=%s tgt=%s items=%d", used_src_code, translated_payload.get("used_nllb_tgt", nllb_tgt_lang), len(translated))
+            used_method = translated_payload.get("translation_method", "local")
+            LOG.info("Loaded translation: src=%s tgt=%s items=%d method=%s", 
+                     used_src_code, translated_payload.get("used_nllb_tgt", nllb_tgt_lang), 
+                     len(translated), used_method)
         else:
-            translated, used_src_code = translate_utterances(utterances, nllb_src_lang, detected_lang, nllb_tgt_lang)
+            translated, used_src_code = translate_utterances(
+                utterances, source_lang, detected_lang, target_lang,
+                translation_method=translation_method,
+                nllb_src_code=nllb_src_lang,
+                nllb_tgt_code=nllb_tgt_lang
+            )
             save_json(translated_json, {
                 "detected_whisper_lang": detected_lang,
                 "used_nllb_src": used_src_code,
                 "used_nllb_tgt": nllb_tgt_lang,
+                "translation_method": translation_method,
                 "target_tts_lang": target_lang,
                 "items": translated,
             })
             translation_was_just_created = True
-            LOG.info("Translation JSON created: %s", translated_json)
+            LOG.info("Translation JSON created: %s (method: %s)", translated_json, translation_method)
 
         if translation_was_just_created and not prompt_before_dubbing_if_translation_was_just_created(translated_json):
             LOG.info("Stopping before dubbing as requested.")
@@ -1100,12 +1439,14 @@ export ASR_COMPUTE_CPU="${ASR_COMPUTE_CPU:-int8}"
 export MAX_REF_CLIPS="${MAX_REF_CLIPS:-3}"
 export XTTS_MAX_CHARS="${XTTS_MAX_CHARS:-180}"
 export XTTS_CHAR_LIMIT_MARGIN="${XTTS_CHAR_LIMIT_MARGIN:-20}"
-export XTTS_SPEED="${XTTS_SPEED:-1.0}"
+export XTTS_SPEED="${XTTS_SPEED:-1.3}"
 export XTTS_TEMPERATURE="${XTTS_TEMPERATURE:-0.65}"
 export XTTS_REPETITION_PENALTY="${XTTS_REPETITION_PENALTY:-2.0}"
 export AAC_BITRATE="${AAC_BITRATE:-192k}"
-export XTTS_INTER_CHUNK_SILENCE_MS="${XTTS_INTER_CHUNK_SILENCE_MS:-120}"
+export XTTS_INTER_CHUNK_SILENCE_MS="${XTTS_INTER_CHUNK_SILENCE_MS:-0}"
 export LOG_LEVEL="${LOG_LEVEL:-INFO}"
+# Fix for OpenMP error on macOS with faster-whisper and other ML libraries
+export KMP_DUPLICATE_LIB_OK="TRUE"
 
 info "Starting the local dubbing pipeline with checkpoint/resume support..."
 python "$PY_SCRIPT"

@@ -6,6 +6,10 @@ By [Francesco Galgani](https://www.informatica-libera.net/), license [CC0](https
 
 This project replaces the audio track of one or more MP4 files with a translated, synthesized dub while keeping the original video stream intact. It is designed for long recordings such as webinars, livestreams, interviews, and meetings where perfect lip-sync is not required.
 
+## Quick start: Test with the included sample video
+
+**Highly recommended for first-time users**: Before processing your own videos, test the pipeline with the included sample video `test.mp4` to verify that everything works correctly on your system.
+
 ## What it does
 
 The pipeline is:
@@ -14,12 +18,19 @@ The pipeline is:
 2. Transcribe speech with `faster-whisper`
 3. Run speaker diarization with `pyannote.audio`
 4. Rebuild larger speaker turns (“utterances”)
-5. Translate the utterances with NLLB
+5. Translate the utterances with **NLLB (local)** or **Google Translate (online)**
 6. Generate target-language speech with XTTS v2 using per-speaker reference clips
 7. Assemble the dubbed audio timeline
 8. Mux the new audio into the original MP4 without re-encoding the video stream
 
 The script supports checkpoint/resume, so it can be interrupted and restarted without redoing every completed step.
+
+**Notes on Google Translate:**
+- Requires internet connection
+- Uses the [`deep-translator` library](https://github.com/nidhaloff/deep-translator)
+- May have rate limits for large batches
+- Automatically installed when selected
+- Translation results are cached in the `.translated.json` file like NLLB
 
 ## Tested environment
 
@@ -31,6 +42,8 @@ This script has been tested on:
 - **CPU:** Intel Core i7-7700HQ
 - **RAM:** 16 GB
 - **GPU:** NVIDIA GeForce GTX 1050 Mobile, 4 GB VRAM
+
+I did my best to get the script to work on macOS Sequoia (Intel), but I wasn't able to.
 
 ### Notes on GPU behavior on the tested machine
 
@@ -146,6 +159,7 @@ You do **not** need to edit the script to process different MP4 files as long as
 
 | Variable | Default | Meaning |
 |---|---:|---|
+| `TRANSLATION_METHOD` | `local` | Translation method: `local` (NLLB) or `google` (Google Translate) |
 | `SOURCE_LANG` | `ru` | Source language for Whisper |
 | `TARGET_LANG` | `it` | Target language for TTS/output naming |
 | `NLLB_SRC_LANG` | `rus_Cyrl` | Source language code for NLLB |
@@ -178,15 +192,16 @@ You do **not** need to edit the script to process different MP4 files as long as
 
 ### Examples
 
-Default Russian → Italian run:
+Default Russian → Italian run (local NLLB):
 
 ```bash
 ./autodub_local.sh
 ```
 
-Explicit Russian → Italian run:
+Explicit Russian → Italian run with local NLLB:
 
 ```bash
+TRANSLATION_METHOD=local \
 SOURCE_LANG=ru \
 TARGET_LANG=it \
 NLLB_SRC_LANG=rus_Cyrl \
@@ -195,14 +210,25 @@ NUM_SPEAKERS=2 \
 ./autodub_local.sh
 ```
 
-Example for a different language pair:
+English → Italian with local NLLB:
 
 ```bash
-SOURCE_LANG=de \
-TARGET_LANG=en \
-NLLB_SRC_LANG=deu_Latn \
-NLLB_TGT_LANG=eng_Latn \
-NUM_SPEAKERS=1 \
+TRANSLATION_METHOD=local \
+SOURCE_LANG=en \
+TARGET_LANG=it \
+NLLB_SRC_LANG=eng_Latn \
+NLLB_TGT_LANG=ita_Latn \
+NUM_SPEAKERS=2 \
+./autodub_local.sh
+```
+
+English → Italian with Google Translate:
+
+```bash
+TRANSLATION_METHOD=google \
+SOURCE_LANG=en \
+TARGET_LANG=it \
+NUM_SPEAKERS=2 \
 ./autodub_local.sh
 ```
 
@@ -359,6 +385,37 @@ project/
         └── your_video.it.wav
 ```
 
-## Current status
+## Known Issue: Very Short Speech Interventions (< 4 seconds)
 
-This README reflects the current behavior of the project-local checkpointing pipeline tested during real-world runs on Linux Mint 22 with long Russian-language recordings dubbed into Italian.
+The voice cloning engine (Coqui XTTS) requires a sufficient audio sample to accurately replicate a person's voice. By default, this script is configured to extract reference voice clips **only from segments where a speaker talks continuously for at least 4 seconds** (`if dur >= 4.0:`).
+
+If your video features a speaker who only says a very brief phrase (e.g., a 1 or 2-second interruption like "Yes" or "Thank you"), the script will skip extracting a voice profile for them. Consequently, when the pipeline reaches the dubbing phase and tries to synthesize audio for that speaker, **the script will crash** with the following error:
+
+```text
+RuntimeError: Speaker 'SPEAKER_XX' is not present in the XTTS cache
+```
+
+### How to Fix It (2 Options)
+
+When the script finishes the translation phase, it will pause and ask you:
+`Continue with dubbing now? [Y/n]:`
+
+**Do not press `Y` immediately.** Instead, open the generated files in the `.autodub_local/<video_name>/` folder and choose one of the following workarounds:
+
+**Option 1: Ignore the short intervention (Recommended for unimportant lines)**
+If the brief interruption is not important (e.g., someone just saying "Yeah"), you can simply delete it from the translation queue.
+1. Open the `<video_name>.translated.json` file.
+2. Find the JSON block `{ ... }` corresponding to the short utterance and delete it. Make sure the remaining JSON structure remains valid (correct commas).
+3. Save the file, go back to your terminal, and press `Y`.
+4. The script will proceed to dub only the main speakers, and the brief interruption will simply be muted in the final video.
+
+**Option 2: Force the voice cloning for the short intervention**
+If the brief phrase is important and must be dubbed, you need to "trick" the script into extracting enough audio for that speaker.
+1. Open the `<video_name>.diarization.json` file.
+2. Find the segment corresponding to the short phrase. It will look something like this: `{"start": 120.0, "end": 121.5, "speaker": "SPEAKER_01"}`.
+3. Modify the `"end"` value by adding at least 4 seconds (e.g., change `121.5` to `125.5`).
+4. Save the file.
+5. *(Important)* If a file named `<video_name>.utterances.json` already exists in that folder, delete it so the script will regenerate it using the new extended timeline.
+6. Go back to your terminal and press `Y`.
+7. The script will now extract the 1.5 seconds of speech plus the following 3.5 seconds of silence/background noise. This provides enough data for XTTS to clone the voice. Note that because the sample is very short, the resulting cloned voice may sound slightly artificial.
+
