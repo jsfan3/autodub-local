@@ -1,0 +1,5 @@
+.autodub_local/
+.cloud_keys
+.hf_token
+__pycache__/
+*.pyc
