@@ -1,220 +1,506 @@
-# Example of Agent-Assisted Usage
+# Reusable Agent-Assisted Dubbing Workflow
 
-If you are a human who wants to use `autodub-local` freely, without depending on an AI agent subscription, you should ignore this file and use the examples and documentation in `README.md`.
+Version: 2026-08-10
 
-If you are an AI agent and the user has asked you to assist with a dubbing job through `autodub-local`, this file is for you.
+If you are a human using `autodub-local` without an AI assistant, use
+`README.md` instead. This document is an instruction file for an AI agent that
+has been asked to manage a dubbing job in this repository.
 
-This document is a reusable instruction file for future AI-assisted dubbing sessions with `autodub-local`.
-It describes Francesco Galgani's preferred workflow: the assistant drives commands and monitoring, asks for confirmation at meaningful decision points, keeps the final dubbing pipeline local, optionally generates an additional cloud transcript for comparison, reviews transcription/translation errors, and adds a publication watermark.
+The user can start a future job by providing this file and a source video. The
+agent must treat the preferences below as the default workflow, adapting file
+names, languages, speaker count, voices, attribution, and technical parameters
+to the new source.
 
-To use it in a future chat, tell the assistant something like:
+Communicate with the user in the user's language. Drive the work from initial
+inspection through the verified publication MP4; do not stop after analysis
+when the user has authorized execution.
+
+## Core Preferences
+
+- Keep the main dubbing pipeline local unless the user explicitly authorizes a
+  cloud service for a particular stage.
+- Design every long stage to survive loss of Internet access and disconnection
+  of the chat.
+- Use cloud transcription only as an independent comparison source. Never
+  replace the local transcript automatically with cloud output.
+- Review both the source transcript and the complete translation. A local LLM
+  adaptation pass is not a substitute for the agent's own review.
+- Validate the actual voice used for every speaker, not merely the command-line
+  voice map.
+- Produce natural spoken continuity. Do not preserve long source timestamps
+  when they create silence that breaks an Italian sentence.
+- When shortening dubbed silence, cut the same duration from the video. Audio
+  and video must remain on one shared edit timeline.
+- Remove technical setup, connection tests, dead air, or irrelevant pre-roll
+  before the substantive talk, unless the user asks to preserve it.
+- Add an attribution watermark to the publication output. Include a license
+  only when it is known; do not write that the license is unknown.
+- Preserve source files, approved intermediates, backups, and known-good
+  outputs. A revised render gets a new file name unless the user explicitly
+  requests replacement.
+- Never expose API keys, `.cloud_keys`, Hugging Face tokens, or other secrets.
+
+## Discover Before Asking
+
+Inspect the workspace, video, caches, documentation, and available commands
+before asking questions. Do not ask the user for information that can be found
+locally.
+
+Determine or ask for the following when it is not already supplied:
+
+- Source video path and required output name.
+- Source and target languages.
+- Number of real speakers, their identities or roles when known, and their
+  genders or vocal characteristics.
+- TTS engine and one distinct voice per speaker.
+- Whether original music or other non-speech audio must be retained. For a
+  speech-only talk or video call, default to a clean dubbed voice track.
+- Whether an auxiliary cloud transcript is authorized and which configured
+  service may be used.
+- Original publication URL for attribution.
+- License, only if known.
+- Any required trims, exclusions, terminology, pronunciation, or naming rules.
+- Whether the user wants the normal approval gates or authorizes the agent to
+  apply sensible corrections directly.
+
+The default watermark pattern is:
 
 ```text
-I want to dub a video. Read EXAMPLE_OF_AGENT_ASSISTED_USAGE.md and follow that workflow.
+Doppiato in <target language> con github.com/jsfan3/autodub-local; originale: <original-url>
 ```
 
-The assistant should adapt all questions, progress reports, and final explanations to the user's language.
+Append `(<license>)` only when the user supplies or confirms the license.
 
-## Working Assumptions
+## Workspace and Preflight
 
-- The user wants the assistant to operate from the command line, monitor long processes, and keep them detached so they can continue through network interruptions or chat disconnections.
-- The final dubbing workflow should run locally unless the user explicitly chooses a cloud mode.
-- Cloud transcription may be used as an auxiliary reference to improve the local transcript, but the final dubbing run should use local ASR, local diarization, local translation, local LLM adaptation, and local TTS unless the user says otherwise.
-- The user may disconnect from the internet during long runs. Long local stages should be launched with offline environment variables when cached models are already available.
-- The assistant must not print secrets such as `.cloud_keys`, API keys, or Hugging Face tokens.
-- The assistant should ask for confirmation before expensive rerenders, before replacing operational JSON files, and before publishing or deleting files.
+1. Work in the directory selected by the user.
+2. Inspect before editing:
 
-## Initial Questions
-
-Ask the user for:
-
-- The input video path or URL.
-- The source language and target language.
-- Whether a suitable `.autodub_local` directory with Python environment, libraries, and downloaded models already exists.
-- If `.autodub_local` is missing, ask whether to copy it from another local project directory or download models again.
-- Whether cloud transcription may be used for comparison, and which configured cloud services are available.
-- The desired TTS engine and voice mapping. For the Kokoro Italian workflow used in the Georgia Tech example, `SPEAKER_00=if_sara,SPEAKER_01=im_nicola` was used.
-- The original video attribution URL and license to use in the watermark.
-- The exact watermark text, or permission to use this pattern:
-
-```text
-Doppiato in <target language> con github.com/jsfan3/autodub-local; originale: <original-url> (<license>)
+```bash
+pwd
+git status --short || true
+rg --files | sed -n '1,160p'
+./autodub_local.sh --help
 ```
 
-For URLs intended for TTS or on-screen text, keep domains compact, for example `nojs.us`, `gnu.org`, `ItsFOSS.com`, and `www.librelinker.us`. Do not write them as `nojs . us` or `librelinker . us`.
-
-## Repository Setup
-
-1. Work in a clean project directory chosen by the user.
-2. If `autodub-local` is not present, clone or update the latest published version:
+3. If the repository is absent, obtain it from its official source:
 
 ```bash
 git clone https://github.com/jsfan3/autodub-local.git
 ```
 
-3. If the repository is already present, inspect it before changing anything:
+4. Inspect the source with `ffprobe`: duration, streams, codecs, dimensions,
+   frame rate, audio sample rate, and channel count.
+5. Check free disk space and estimate the space required for extracted PCM,
+   TTS segments, clean masters, previews, and final renders.
+6. Inspect `.autodub_local` before downloading or reinstalling anything. Reuse
+   a valid environment and cached models.
+7. Report only whether credential files or tokens exist, never their contents.
+8. Before an offline stage, verify that every required model and Python package
+   is already available. Download missing assets while Internet access exists.
+9. Check GPU compatibility rather than assuming that the presence of a GPU
+   means the installed PyTorch build can use it. Prefer a known-working CPU run
+   over an incompatible or risky runtime change.
 
-```bash
-pwd
-git status --short || true
-ls -la
+Record exact paths and SHA-256 hashes for operational JSON files before and
+after every approved review.
+
+## Required Artifacts
+
+Use predictable, per-video names. Keep at least:
+
+- A workflow/status Markdown file.
+- One log, PID file, and machine-readable status file per long stage.
+- Local transcript, diarization, utterance, and translated JSON caches.
+- A separate cloud-reference cache when cloud ASR is used.
+- Proposed and approved ASR review reports and JSON files.
+- Proposed and approved translation review reports and JSON files.
+- Backups named with the previous SHA-256 before replacing operational caches.
+- TTS speaker profiles and manifest.
+- A natural-pause edit decision list (EDL) and boundary report.
+- Watermark preview and final QA report.
+
+Status files should begin with exactly one of:
+
+```text
+RUNNING
+SUCCESS
+FAILED
 ```
 
-4. Check whether `.autodub_local` exists. If not, ask the user where to copy it from or whether to download everything again.
-5. Never reveal `.cloud_keys` or `.hf_token`. Only report whether they exist.
+Include timestamps, stage name, important input hashes, output paths, and the
+failure reason when applicable.
 
-## Local Dubbing Run
+## Stage 0: Short Pilot
 
-Use detached commands for long runs. Keep logs and PID files in predictable locations.
+Before processing a long video, normally create a fully automatic pilot of one
+or two representative minutes. The excerpt should contain every important
+speaker when possible; it need not be the literal first two minutes when those
+contain only technical setup.
 
-Typical local command:
+The pilot must test the same key choices intended for the full job:
+
+- ASR and diarization.
+- Explicit expected speaker count.
+- Strict speaker-to-voice mapping.
+- Translation method and local LLM adaptation.
+- TTS voices and pacing.
+- Basic mix/mux behavior.
+- Active-voice edge detection and natural-pause video/audio cuts.
+
+Verify that distinct speakers receive distinct intended voices by inspecting
+speaker profiles and the TTS manifest. Do not infer success merely because two
+voices were passed on the command line.
+
+Let the user assess pronunciation, translation style, voice suitability, and
+general direction. Run `silencedetect` on the pilot and do not present a raw
+timestamp-anchored pilot with multi-second gaps as representative of the final
+workflow. When the user approves the approach, remove disposable pilot outputs
+if requested, but do not remove shared models or caches needed by the full run.
+
+## Stage 1: Local ASR and Diarization
+
+Run local ASR, local diarization, and utterance reconstruction as a separate,
+checkpointed stage. Do not launch translation or TTS until the source text and
+speaker structure are ready for review.
+
+- Set the known speaker count explicitly. Do not leave it on `auto` when the
+  user has stated how many people speak.
+- Validate that the resulting speaker set contains exactly the expected labels.
+- Inspect empty text, invalid intervals, mixed-speaker utterances, implausible
+  short fragments, and large timestamp gaps.
+- Identify which diarization label corresponds to each real person.
+- Store counts, label mapping, hashes, and validation results in the workflow
+  report.
+
+For cached local models, force offline behavior where supported:
 
 ```bash
-cd /path/to/autodub-local
-nohup setsid env HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 /usr/bin/time -p ./autodub_local.sh \
-  --input input.mp4 \
-  --source-lang en \
-  --target-lang it \
+env HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 TOKENIZERS_PARALLELISM=false \
+  ./autodub_local.sh <adapted arguments>
+```
+
+Use only options confirmed by the current `--help` and repository code.
+
+## Stage 2: Auxiliary Cloud Transcript
+
+Run this stage only when authorized or when unresolved local ASR doubts justify
+it. Keep it isolated from the operational local cache.
+
+- Prefer a cloud service capable of diarization.
+- Make upload, polling, retry, and rate-limit handling resumable.
+- Write cloud job identifiers and status without exposing credentials.
+- Align cloud words or segments to the local utterances.
+- Determine the cloud-to-local speaker-label mapping from evidence.
+- Treat cloud output as another fallible witness. Resolve disagreements using
+  audio, source-language grammar, subject matter, names, and context.
+
+The cloud transcript must not silently overwrite the local transcript.
+
+## Stage 3: ASR Review
+
+Review the entire local ASR result, using the cloud transcript when available.
+Check more than obvious spelling mistakes:
+
+- Names, institutions, products, technical and medical terminology.
+- Negation, numbers, units, abbreviations, and quoted questions.
+- Speaker assignments and turn boundaries.
+- Sentences accidentally combining two speakers.
+- Repeated or hallucinated material.
+- Non-speech noises and spurious interjections.
+- Timestamp changes required after splitting, merging, or deleting fragments.
+
+Create a proposed JSON and a complete Markdown report before changing the
+operational cache. Report the number of source utterances affected, resulting
+utterance count, speaker changes, boundary changes, and unresolved doubts.
+
+Default approval gate: show the proposed corrections and wait. If the user has
+explicitly authorized direct application, apply only coherent corrections,
+back up the old JSON, validate the new JSON, and record both hashes.
+
+## Stage 4: Local Translation and Adaptation
+
+Run local translation and local LLM timing adaptation as a separate offline
+stage, stopping before TTS. Reuse the approved ASR, diarization, and utterance
+caches.
+
+Illustrative command shape, to be adapted to the current CLI:
+
+```bash
+./autodub_local.sh \
+  --input <input-video> \
+  --output <unused-pre-tts-output> \
+  --source-lang <source-code> \
+  --target-lang <target-code> \
   --translation-method local \
-  --tts-engine kokoro \
-  --num-speakers auto \
-  --no-gpu \
-  --tts-voice-map SPEAKER_00=if_sara,SPEAKER_01=im_nicola \
-  --output /path/to/output_local_dub.mp4 \
-  > /path/to/local_dub.log 2>&1 < /dev/null &
+  --tts-engine <engine> \
+  --num-speakers <count> \
+  --stop-after-translation \
+  --llm-adapt auto \
+  --tts-voice-map SPEAKER_00=<voice-a>,SPEAKER_01=<voice-b> \
+  --tts-voice-map-strict
 ```
 
-Tell the user how to monitor it manually:
+Add or remove speaker mappings to match the actual speaker count exactly.
 
-```bash
-tail -f /path/to/local_dub.log
-```
+## Stage 5: Complete Translation Review
 
-Monitor progress yourself by checking:
+The agent must review every translated utterance against the approved source
+text. Do not delegate final judgment blindly to a local or external LLM.
 
-- The wrapper log.
-- The internal `.autodub_local/logs/run_*.log`.
-- Active `autodub_local.sh`, `dub_worker.py`, `ffmpeg`, `ollama runner`, or TTS processes.
-- Final MP4 presence and `ffprobe` duration.
+Review for:
 
-## Cloud Transcript for Review
+- Meaning, negation, causality, chronology, quantities, and modality.
+- Domain terminology and consistent recurring expressions.
+- Names and the pronunciation that TTS will produce.
+- Natural target-language syntax and register.
+- Spurious fillers, ASR noises, duplicated words, and text that should not be
+  spoken.
+- TTS-friendly readings of acronyms, formulae, numbers, and abbreviations.
+- Overlong text that cannot fit its slot.
+- Over-shortened text that would create several seconds of dead air.
+- Segment boundaries that split one syntactic phrase across multiple clips.
 
-If authorized and credentials are configured, generate a cloud transcript as a comparison reference. Prefer a service with diarization if available. In the Georgia Tech workflow, an AssemblyAI raw transcript was useful for resolving local ASR mistakes such as:
+Preserve what the speakers claim. Do not silently fact-check, soften, or
+correct medical, political, legal, or technical opinions unless the user asks
+for editorial intervention. Accuracy here means fidelity to the source.
 
-- `football program` -> `foothold on campus`
-- `GMPL` -> `GPL`
-- `pay pension` -> `pay attention`
-- `moving paths` -> `MoviePass`
-- `status call` -> `status quo`
+Character budgets are diagnostic, not the sole objective. A line fitting under
+its maximum budget can still be too short for the original slot. Record both
+over-budget and severe under-duration risks.
 
-Use the cloud transcript as evidence, not as an automatic replacement. Compare it with the local transcript, source context, and domain knowledge.
-
-## Translation and Transcript Review
-
-After the first local dubbed output exists, review the translated JSON before producing a publication version.
-
-Use a separate reviewed copy first:
+Create:
 
 ```text
 <stem>.translated.<lang>.reviewed.json
-translation_review_proposed_changes.md
+<stem>-translation-review.md
+<stem>-translation-review-meta.json
 ```
 
-The review should:
+Report all changed items, uncertainties, total character counts, and timing
+checks. Use the same approval rule as the ASR review: propose first by default;
+apply directly only when the user has granted that authority. Always back up
+the operational translation before replacement.
 
-- Identify significant semantic errors, not only style issues.
-- Compare local transcript, cloud transcript, and context.
-- Preserve the speaker's intended terminology. For Richard Stallman talks, translate `free software` as `software libero`, not `software gratuito`.
-- Keep Stallman's phrasing `anti-social media` as `media antisociali`, unless the user asks otherwise.
-- Keep technical terms clear: `copyleft`, `GPL`, `backdoor`, `DRM`, `software non libero`, `software libre`, `F-Droid`.
-- Avoid TTS-hostile spaced URLs.
-- Shorten corrected Italian text when needed so it fits timing budgets.
+## Stage 6: TTS, Profiles, and Clean Master
 
-Before rerendering audio, show the user:
+Run TTS only after the reviewed translation is operational and its hash is
+verified.
 
-- The reviewed JSON path.
-- The Markdown report path.
-- The number of changed segments.
-- Any uncertain corrections.
-- Timing-risk checks, such as changed segment character counts and whether any exceed the previous LLM target budget.
+- Use one explicit voice per expected speaker and strict mapping.
+- Validate speaker profiles after generation.
+- Validate every manifest item: requested speaker, actual speaker, actual
+  voice, sample rate, nonempty audio, text hash, and duration.
+- Ensure cache reuse is based on compatible configuration and reviewed-text
+  hashes.
+- Keep the clean PCM dubbed track and clean video master. The publication
+  version should be derived from these, not from a previously compressed MP4.
 
-Ask for confirmation before applying the reviewed JSON to the operational cache.
+Inspect both timing failure modes:
 
-## Rerendering After Review
+1. **Overlaps:** TTS continues into the next utterance.
+2. **Gaps:** TTS finishes early and leaves unnatural silence before the next
+   utterance.
 
-After approval:
-
-1. Back up the operational translated JSON.
-2. Replace it with the reviewed JSON.
-3. Rerun the same local command with a new output filename.
-4. Ensure cached transcript, diarization, utterance, translation, and speaker profile stages are reused.
-5. Ensure unchanged TTS segments are reused when possible.
-6. Check the mix log for:
+`overlap_warnings=0` is necessary but not sufficient. Calculate for every
+boundary:
 
 ```text
-overlap_warnings=0
+manifest_gap = next.start - (current.start + current.tts_duration)
 ```
 
-If overlap warnings remain, inspect the exact segments. For sub-second false starts or diarization fragments, consider removing those fragments from the dubbed track rather than forcing unnatural TTS.
-
-## Watermark
-
-Before applying the watermark to the whole video, generate one preview frame and show it to the user.
-
-Example text used for the Georgia Tech video:
+Also measure actual active speech inside every TTS file. Many engines add
+leading and trailing silence, so the pause heard by the user is:
 
 ```text
-Doppiato in italiano con github.com/jsfan3/autodub-local; originale: nojs.us (CC BY-SA 4.0)
+perceived_gap = next_active_voice_start - current_active_voice_end
 ```
 
-Example preview frame command:
+Warnings such as `Skipping unsafe TTS expansion` often predict large gaps.
+Count them and audit the affected boundaries. Never declare timing successful
+after checking overlaps alone.
+
+## Stage 7: Natural-Pause Timeline
+
+The default publication version should use a compact semantic timeline. Do not
+anchor every TTS clip to the original ASR timestamp when that produces long
+silence inside a sentence.
+
+Review every boundary and classify it semantically. The following targets are
+the preferred defaults for Italian; adjust only when the target language or
+context clearly requires it:
+
+| Boundary | Target perceived pause |
+|---|---:|
+| Unpunctuated continuation inside one sentence | 0.10 s |
+| Comma or short clause break | about 0.17 s |
+| Colon or semicolon | about 0.27 s |
+| Completed sentence | about 0.40 s |
+| Question, exclamation, or emphatic sentence | about 0.47 s |
+| Change of speaker | about 0.60 s |
+
+Rules:
+
+- If the existing perceived gap is already shorter than the target, do not
+  lengthen it automatically.
+- Preserve a longer pause only when listening or context shows that it is a
+  deliberate rhetorical pause.
+- Measure voice activity rather than treating the whole TTS file as speech.
+- Do not cut phonemes. Leave a small safety margin around detected activity.
+- Resolve negative gaps or real overlaps explicitly; they cannot be repaired
+  by removing silence.
+- Remove the same intervals from audio and video. A jump cut is preferable to
+  several seconds of silent moving lips in a talk or interview.
+- For visually complex footage, inspect every problematic cut and use the
+  least distracting frame-accurate edit that preserves the shared timeline.
+- Quantize edits to the video frame grid. Make audio removals sample-accurate
+  and equal in duration to video removals so synchronization cannot drift over
+  hundreds of cuts.
+- Save the EDL as structured JSON or CSV and generate a human-readable boundary
+  report with original gap, perceived gap, class, retained pause, removed
+  duration, and adjacent text.
+
+Prefer rendering from the source video plus the reviewed PCM track so video and
+audio each undergo only one publication encode.
+
+Before the full render, create a three-to-five-minute preview containing many
+boundaries. Listen to it and run `silencedetect`. Compare it with the
+uncompacted master. A normal publication candidate should have no unexplained
+pause of one second or more; list any deliberate exception.
+
+## Long-Running and Offline Orchestration
+
+Each long stage must be independently executable and monitorable outside the
+chat.
+
+Use a wrapper script that:
+
+- Writes its own PID after launch.
+- Verifies hashes of approved inputs.
+- Writes `RUNNING` before starting.
+- Redirects complete output to a stable log.
+- Validates artifacts before writing `SUCCESS`.
+- Writes `FAILED`, an exit code, and a reason on failure.
+- Can resume compatible caches without repeating completed work.
+
+Detach robustly, for example:
 
 ```bash
-FONT=$(fc-match -f '%{file}\n' 'Noto Sans' | head -n 1)
-ffmpeg -y -hide_banner -loglevel error -ss 00:01:30 -i output_local_dub.mp4 -frames:v 1 \
-  -vf "drawtext=fontfile=${FONT}:text='Doppiato in italiano con github.com/jsfan3/autodub-local; originale\\: nojs.us (CC BY-SA 4.0)':fontsize=26:fontcolor=white:borderw=2:bordercolor=black@0.65:x=w-tw-34:y=h-th-28" \
-  watermark_sample.png
+setsid -f ./run_stage.sh
 ```
 
-After approval, render the final watermarked MP4. Watermarking requires video re-encoding.
+Do not assume a background process survived merely because the launch command
+returned. Recheck the PID, status file, process tree, and first meaningful log
+lines.
 
-Example:
+Provide a monitor command or script that reports progress periodically and
+ends with a clear instruction such as:
 
-```bash
-FONT=$(fc-match -f '%{file}\n' 'Noto Sans' | head -n 1)
-ffmpeg -y -hide_banner -nostdin \
-  -i output_reviewed_clean_dub.mp4 \
-  -vf "drawtext=fontfile=${FONT}:text='Doppiato in italiano con github.com/jsfan3/autodub-local; originale\\: nojs.us (CC BY-SA 4.0)':fontsize=26:fontcolor=white:borderw=2:bordercolor=black@0.65:x=w-tw-34:y=h-th-28" \
-  -map 0:v:0 -map 0:a:0 \
-  -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p \
-  -c:a copy -movflags +faststart \
-  output_reviewed_watermarked.mp4
+```text
+STAGE COMPLETED. Reconnect to the Internet and ask the agent to inspect the result.
 ```
 
-For long videos, run this detached and monitor with `ffmpeg -progress`.
+When the user is about to disconnect, explicitly state whether it is safe,
+give a realistic remaining-time estimate, and identify what event requires
+reconnection. Online stages need retry and resume logic; local stages should
+use offline model flags after preflight.
 
-## Final Checks
+## Trim, Watermark, and Publication Render
 
-Before reporting completion:
+Find the real beginning of the substantive content. Exclude initial connection
+tests, duplicated audio checks, waiting, and other technical setup by default.
+Record the chosen source timestamp.
 
-- Verify the final MP4 exists.
-- Verify duration and size:
+Create the watermark through a text file when escaping would be fragile. It may
+wrap onto two lines at low resolution. Choose font size and margins relative to
+the actual dimensions; do not copy a size suitable for a larger video.
 
-```bash
-ffprobe -v error -show_entries format=duration,size -of default=nw=1 output_reviewed_watermarked.mp4
-```
+Generate and inspect a real preview frame before the full encode. The watermark
+must be legible, inside the frame, unobtrusive, and must not cover essential
+content.
 
-- Extract a final sample frame and visually inspect the watermark.
-- Confirm no dubbing process or watermark `ffmpeg` process remains active.
-- Summarize the exact output paths.
-- Mention logs and any residual risks, such as TTS pronunciation or unavoidable skipped expansion warnings.
+Typical publication characteristics:
 
-## Blog Support
+- Source video plus final PCM dubbed audio.
+- Shared EDL applied to both streams.
+- H.264 video, `yuv420p`.
+- AAC audio at a bitrate valid for its sample rate and channel count.
+- `+faststart`.
+- A hidden or clearly temporary partial output.
+- Atomic rename to the requested final name only after validation.
+- Detached rendering with `ffmpeg -progress` for a long video.
 
-If the user wants to publish the result, prepare a short text in the user's language explaining:
+Never overwrite a known-good earlier render when testing a timing correction.
+Use a descriptive suffix such as `_natural-pauses`, `_reviewed`, or another
+name agreed with the user.
+
+## Default Approval Gates
+
+Unless the user explicitly authorizes direct action, pause at these points:
+
+1. Pilot output and voice direction.
+2. Proposed ASR corrections before operational replacement.
+3. Proposed translation corrections before operational replacement.
+4. Watermark preview before the full publication encode.
+
+Do not repeatedly ask for approval after the user has clearly granted authority
+to apply sensible corrections and finish the render. New instructions from the
+user override an earlier default gate.
+
+Always ask before deleting source material, approved reviews, known-good
+outputs, or expensive caches.
+
+## Final Quality Assurance
+
+Do not report completion until all applicable checks pass:
+
+- Final path is exactly the agreed output path.
+- Earlier output files that had to be preserved still have their previous
+  SHA-256 hashes.
+- `ffprobe` confirms expected duration, start time, codecs, dimensions, frame
+  rate, audio sample rate, channels, and stream count.
+- Audio and video durations match within a small frame-level tolerance.
+- Frame count matches the EDL prediction.
+- A complete decode of all selected audio and video streams finishes with no
+  errors.
+- The final encoded audio is not silent or clipped. Record mean and peak level.
+- `silencedetect` on the final encoded audio reports median, p90, maximum, total
+  silence, and count of pauses over one second.
+- Every pause over one second is either corrected or documented as deliberate.
+- Speaker profiles and TTS manifest prove the intended voice for every speaker.
+- Initial, middle, and final frames are visually inspected for watermark,
+  framing, corruption, and unexpected black output.
+- The beginning contains the talk, not the discarded technical setup.
+- The ending is not clipped and does not retain unnecessary padding.
+- No dubbing, monitoring, or `ffmpeg` process required by the job remains active.
+- Final size and SHA-256 are recorded.
+
+Create a concise final QA Markdown report and update the workflow status file.
+Tell the user the exact final path, duration, important pause statistics, and
+any residual pronunciation or source-quality risk.
+
+## Cleanup and Preservation
+
+Keep:
+
+- Source video.
+- Approved ASR and translation JSON files and their backups.
+- Speaker profiles, TTS manifest, and reusable TTS clips.
+- Clean PCM track or another lossless reusable master.
+- EDL and review reports.
+- Final QA report, logs, and status files.
+- Publication MP4 and any earlier version the user asked to preserve.
+
+Remove disposable pilots, failed partial renders, and obsolete external-model
+drafts only when it is clear they are no longer needed or the user requests
+cleanup. Never run a broad cleanup command against shared caches.
+
+## Optional Publication Support
+
+When requested, prepare publication text in the user's language covering:
 
 - Who is speaking.
-- The subject of the talk.
-- Why the video matters.
-- How the dubbed version was produced.
-- The original source URL and license.
+- The subject and relevance of the talk.
+- That the version was dubbed with `autodub-local`.
+- The original source URL.
+- The original license only when known.
