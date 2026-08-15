@@ -2,7 +2,7 @@
 
 ```text
 ============================================================
-autodub-local 2.0
+autodub-local 2.1
 Author: Francesco Galgani
 Repository: https://github.com/jsfan3/autodub-local
 License: CC0 - https://creativecommons.org/publicdomain/zero/1.0/
@@ -177,6 +177,9 @@ Cloud-assisted output:
 ```text
 test_IT_only_cloud_edge_dub.mp4
 ```
+
+The version 2.1 cloud sample was regenerated with the current `--only-cloud`
+defaults, including AssemblyAI Universal-3.5 Pro and GPT OSS 120B on Groq.
 
 Command used:
 
@@ -470,10 +473,14 @@ If `--llm-provider ollama` is used and Ollama or the model is missing, the scrip
 Cloud LLM adaptation is available through Groq:
 
 ```bash
---llm-provider groq --groq-llm-model llama-3.3-70b-versatile
+--llm-provider groq --groq-llm-model openai/gpt-oss-120b
 ```
 
 `--only-cloud` selects this Groq LLM mode automatically.
+For this constrained JSON editing workload, the default GPT OSS model uses
+low-effort reasoning, hides the reasoning from the response, and enables JSON
+Object Mode. This keeps reasoning available while limiting its free-tier token
+use and reducing invalid responses that would need a retry.
 
 The same provider can also be used for utterance boundary grouping through
 `--llm-segment`. This step runs before translation and asks the LLM to group
@@ -494,7 +501,7 @@ Relevant options:
 | `--llm-segment auto|always|never` | `auto` |
 | `--llm-provider ollama|groq` | `ollama` |
 | `--llm-model NAME` | `qwen3:8b-q4_K_M` |
-| `--groq-llm-model NAME` | `llama-3.3-70b-versatile` |
+| `--groq-llm-model NAME` | `openai/gpt-oss-120b` |
 | `--llm-chars-per-second N` | speaker-aware language default; overrides all per-speaker budgets when set |
 | `--llm-max-retries N` | `3` |
 | `--llm-temperature N` | `0.1` |
@@ -502,6 +509,9 @@ Relevant options:
 | `--llm-num-predict N` | `256` |
 
 `--llm-timeout 0` disables the request timeout. This is the default so very slow CPU-only or underclocked runs can continue for days if needed.
+GPT OSS requests use a minimum completion ceiling of 1024 tokens so low-effort
+reasoning cannot exhaust the response budget before the required JSON is complete.
+This is a maximum, not a fixed token allocation, and avoids token-wasting retries.
 
 ## CPU-Only Runs
 
@@ -756,7 +766,7 @@ Reference table:
 | Qwen3 | Default local LLM family | Apache-2.0 open-weight models according to Qwen | https://github.com/QwenLM/Qwen3 |
 | GroqCloud | Cloud Whisper and cloud LLM adaptation | Governed by Groq services terms, rate limits, data settings, and model licenses | https://console.groq.com/docs/legal/services-agreement |
 | Groq Whisper Large v3 | Cloud ASR | OpenAI Whisper model served by Groq; Groq recommends chunking large audio | https://console.groq.com/docs/speech-to-text |
-| Llama 3.3 70B Versatile | Default Groq LLM | Meta Llama 3.3 Community License plus Groq terms | https://developer.meta.com/ai/llama3_3/license/ |
+| GPT OSS 120B | Default Groq LLM | Apache-2.0 open weights plus Groq terms | https://huggingface.co/openai/gpt-oss-120b |
 | AssemblyAI | Cloud transcription and speaker labels | Service terms and free credits; new accounts currently receive free credits for STT-related services | https://www.assemblyai.com/docs/billing-and-pricing |
 | Kokoro | Local preset TTS | Apache-2.0 code/weights | https://huggingface.co/hexgrad/Kokoro-82M |
 | Coqui TTS toolkit | XTTS runtime | MPL-2.0 toolkit; pretrained model licenses vary | https://github.com/coqui-ai/TTS |

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# autodub-local 2.0
+# autodub-local 2.1
 # Author: Francesco Galgani
 # Repository: https://github.com/jsfan3/autodub-local
 # License: CC0 - https://creativecommons.org/publicdomain/zero/1.0/
@@ -9,7 +9,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 PROGRAM_NAME="autodub-local"
-PROGRAM_VERSION="2.0"
+PROGRAM_VERSION="2.1"
 PROGRAM_AUTHOR="Francesco Galgani"
 PROGRAM_REPOSITORY="https://github.com/jsfan3/autodub-local"
 PROGRAM_LICENSE="CC0 - https://creativecommons.org/publicdomain/zero/1.0/"
@@ -79,12 +79,12 @@ LLM adaptation:
       --llm-segment MODE        auto, always, or never. Default: auto
       --llm-provider PROVIDER   ollama or groq. Default: ollama
       --llm-model NAME          Ollama model. Default: qwen3:8b-q4_K_M
-      --groq-llm-model NAME     Groq chat model. Default: llama-3.3-70b-versatile
+      --groq-llm-model NAME     Groq chat model. Default: openai/gpt-oss-120b
       --llm-chars-per-second N  Override the per-speaker character budget used for overlong lines.
       --llm-max-retries N       Retry count for over-budget LLM output. Default: 3
       --llm-temperature N       Default: 0.1
       --llm-timeout SECONDS     Ollama request timeout. 0 disables timeout. Default: 0
-      --llm-num-predict N       Maximum generated tokens per request. Default: 256
+      --llm-num-predict N       Maximum generated tokens per request. GPT OSS uses at least 1024. Default: 256
       --skip-ollama-install     Fail if Ollama/model are missing instead of installing/pulling.
 
 TTS/audio options:
@@ -215,7 +215,7 @@ LLM_ADAPT="${LLM_ADAPT:-auto}"
 LLM_SEGMENT="${LLM_SEGMENT:-auto}"
 LLM_PROVIDER="${LLM_PROVIDER:-ollama}"
 LLM_MODEL="${LLM_MODEL:-qwen3:8b-q4_K_M}"
-GROQ_LLM_MODEL="${GROQ_LLM_MODEL:-llama-3.3-70b-versatile}"
+GROQ_LLM_MODEL="${GROQ_LLM_MODEL:-openai/gpt-oss-120b}"
 LLM_CHARS_PER_SECOND="${LLM_CHARS_PER_SECOND:-}"
 LLM_MAX_RETRIES="${LLM_MAX_RETRIES:-3}"
 LLM_TEMPERATURE="${LLM_TEMPERATURE:-0.1}"
@@ -2500,7 +2500,7 @@ def llm_segmentation_should_run(utterances: List[Dict]) -> bool:
 def llm_adapter_for_segmentation(source_lang: str):
     provider = os.environ.get("LLM_PROVIDER", "ollama").strip().lower()
     if provider == "groq":
-        model = os.environ.get("GROQ_LLM_MODEL", "llama-3.3-70b-versatile").strip()
+        model = os.environ.get("GROQ_LLM_MODEL", "openai/gpt-oss-120b").strip()
         return GroqLLMAdapter(model, source_lang)
     model = os.environ.get("LLM_MODEL", "qwen3:8b-q4_K_M").strip()
     return OllamaAdapter(model, source_lang)
@@ -3674,9 +3674,15 @@ class GroqLLMAdapter(OllamaAdapter):
                 {"role": "user", "content": prompt},
             ],
             "temperature": self.temperature,
-            "max_tokens": max(self.num_predict, 512),
+            "max_tokens": max(self.num_predict, 1024 if self.model == "openai/gpt-oss-120b" else 512),
             "stream": False,
         }
+        if self.model == "openai/gpt-oss-120b":
+            # Keep reasoning available for the adaptation and segmentation work,
+            # but minimize its token use on Groq's free tier.
+            payload["reasoning_effort"] = "low"
+            payload["reasoning_format"] = "hidden"
+            payload["response_format"] = {"type": "json_object"}
         response = cloud_request(
             "POST",
             "https://api.groq.com/openai/v1/chat/completions",
@@ -3702,7 +3708,7 @@ def adapt_utterances_for_dubbing(translated: List[Dict], target_lang: str) -> Li
 
     provider = os.environ.get("LLM_PROVIDER", "ollama").strip().lower()
     if provider == "groq":
-        model = os.environ.get("GROQ_LLM_MODEL", "llama-3.3-70b-versatile").strip()
+        model = os.environ.get("GROQ_LLM_MODEL", "openai/gpt-oss-120b").strip()
         adapter = GroqLLMAdapter(model, target_lang)
     else:
         model = os.environ.get("LLM_MODEL", "qwen3:8b-q4_K_M").strip()
@@ -4810,7 +4816,7 @@ def main():
         "utterance_repair_max_chars": int(os.environ.get("UTTERANCE_REPAIR_MAX_CHARS", "620")),
         "llm_segment": os.environ.get("LLM_SEGMENT", "auto"),
         "llm_segment_provider": os.environ.get("LLM_PROVIDER", "ollama"),
-        "llm_segment_model": os.environ.get("GROQ_LLM_MODEL", "llama-3.3-70b-versatile") if os.environ.get("LLM_PROVIDER", "ollama") == "groq" else os.environ.get("LLM_MODEL", "qwen3:8b-q4_K_M"),
+        "llm_segment_model": os.environ.get("GROQ_LLM_MODEL", "openai/gpt-oss-120b") if os.environ.get("LLM_PROVIDER", "ollama") == "groq" else os.environ.get("LLM_MODEL", "qwen3:8b-q4_K_M"),
         "llm_segment_prompt_version": LLM_SEGMENT_PROMPT_VERSION,
     }
     utterance_payload = load_json(utterances_json) if utterances_json.exists() and utterances_json.stat().st_size > 0 else None
@@ -4848,7 +4854,7 @@ def main():
         "llm_adapt": os.environ.get("LLM_ADAPT", "auto"),
         "llm_provider": os.environ.get("LLM_PROVIDER", "ollama"),
         "llm_model": os.environ.get("LLM_MODEL", "qwen3:8b-q4_K_M"),
-        "groq_llm_model": os.environ.get("GROQ_LLM_MODEL", "llama-3.3-70b-versatile"),
+        "groq_llm_model": os.environ.get("GROQ_LLM_MODEL", "openai/gpt-oss-120b"),
         "llm_prompt_version": LLM_PROMPT_VERSION,
         "llm_budget_version": LLM_BUDGET_VERSION,
         "llm_speaker_pacing_version": TTS_SPEAKER_PACING_VERSION,

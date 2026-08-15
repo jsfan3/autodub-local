@@ -162,6 +162,7 @@ or after temporarily moving `.autodub_local/venv` aside:
 - `--translation-method google` should not load NLLB.
 - `--translation-method local` should load NLLB and include the NLLB license warning in the README.
 - `--llm-segment auto` should use Groq segmentation in `--only-cloud` and keep heuristic-only segmentation in ordinary local runs.
+- The default Groq LLM should be `openai/gpt-oss-120b`; its requests should use JSON Object Mode with low-effort hidden reasoning.
 
 ## Release Gate
 
