@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# autodub-local 2.1
+# autodub-local 3.0
 # Author: Francesco Galgani
 # Repository: https://github.com/jsfan3/autodub-local
 # License: CC0 - https://creativecommons.org/publicdomain/zero/1.0/
@@ -9,10 +9,17 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 PROGRAM_NAME="autodub-local"
-PROGRAM_VERSION="2.1"
+PROGRAM_VERSION="3.0"
 PROGRAM_AUTHOR="Francesco Galgani"
 PROGRAM_REPOSITORY="https://github.com/jsfan3/autodub-local"
 PROGRAM_LICENSE="CC0 - https://creativecommons.org/publicdomain/zero/1.0/"
+PLATFORM_SYSTEM="$(uname -s 2>/dev/null || printf 'unknown')"
+PLATFORM_MACHINE="$(uname -m 2>/dev/null || printf 'unknown')"
+INTEL_MAC=0
+if [[ "$PLATFORM_SYSTEM" == "Darwin" && "$PLATFORM_MACHINE" == "x86_64" ]]; then
+  INTEL_MAC=1
+fi
+export PLATFORM_SYSTEM PLATFORM_MACHINE INTEL_MAC
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 WORK_DIR="${SCRIPT_DIR}/.autodub_local"
@@ -29,6 +36,75 @@ PY_SCRIPT="${WORK_DIR}/dub_worker.py"
 info() { echo "[$(date +'%F %T')] [INFO] $*"; }
 warn() { echo "[$(date +'%F %T')] [WARN] $*"; }
 die() { echo "[ERROR] $*" >&2; exit 2; }
+
+to_lower() {
+  printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]'
+}
+
+resolve_path() {
+  local path="$1"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$path" <<'PY'
+import os
+import sys
+
+print(os.path.realpath(os.path.abspath(os.path.expanduser(sys.argv[1]))))
+PY
+    return
+  fi
+  if command -v realpath >/dev/null 2>&1 && realpath -m -- "$path" >/dev/null 2>&1; then
+    realpath -m -- "$path"
+    return
+  fi
+
+  # A fresh macOS installation may not have Python yet, and BSD realpath
+  # cannot resolve an output path that does not exist. Normalize the path
+  # lexically so dependency installation can still run later in the script.
+  case "$path" in
+    "~") path="$HOME" ;;
+    "~/"*) path="${HOME}/${path#\~/}" ;;
+  esac
+  if [[ "$path" != /* ]]; then
+    path="${PWD}/${path}"
+  fi
+  local IFS='/'
+  local parts=()
+  local normalized=()
+  local part
+  read -r -a parts <<< "$path"
+  for part in "${parts[@]}"; do
+    case "$part" in
+      ''|.) ;;
+      ..)
+        if [[ ${#normalized[@]} -gt 0 ]]; then
+          unset "normalized[$((${#normalized[@]} - 1))]"
+        fi
+        ;;
+      *) normalized+=("$part") ;;
+    esac
+  done
+  if [[ ${#normalized[@]} -eq 0 ]]; then
+    printf '/\n'
+    return
+  fi
+  printf '/%s' "${normalized[0]}"
+  local index
+  for ((index = 1; index < ${#normalized[@]}; index++)); do
+    printf '/%s' "${normalized[$index]}"
+  done
+  printf '\n'
+}
+
+path_modified_time() {
+  local path="$1"
+  if stat -c '%y' -- "$path" >/dev/null 2>&1; then
+    stat -c '%y' -- "$path" | cut -d'.' -f1
+  elif stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$path" >/dev/null 2>&1; then
+    stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$path"
+  else
+    printf '?'
+  fi
+}
 
 print_banner() {
   cat <<EOF
@@ -169,6 +245,12 @@ TTS_ENGINE="${TTS_ENGINE:-}"
 ONLY_CLOUD="${ONLY_CLOUD:-0}"
 NLLB_SRC_LANG="${NLLB_SRC_LANG:-auto}"
 NLLB_TGT_LANG="${NLLB_TGT_LANG:-auto}"
+NLLB_MODEL_REVISION="${NLLB_MODEL_REVISION:-}"
+if [[ "$INTEL_MAC" == "1" && -z "$NLLB_MODEL_REVISION" ]]; then
+  # Pin the trusted official checkpoint when Intel macOS needs the older
+  # Transformers loader for the repository's PyTorch-format weights.
+  NLLB_MODEL_REVISION="f8d333a098d19b4fd9a8b18f94170487ad3f821d"
+fi
 ASR_BACKEND="${ASR_BACKEND:-local}"
 DIARIZATION_BACKEND="${DIARIZATION_BACKEND:-local}"
 WHISPER_MODEL="${WHISPER_MODEL:-medium}"
@@ -659,7 +741,7 @@ is_reserved_work_dir() {
   local name
   name="$(basename "$1")"
   case "$name" in
-    __pycache__|cache|logs|models|tmp|venv|xdg_data)
+    __pycache__|cache|logs|models|tmp|venv|venv_macos_intel_py311|xdg_data|validation)
       return 0
       ;;
     *)
@@ -715,7 +797,7 @@ clean_mode() {
   for i in "${!dirs[@]}"; do
     dir="${dirs[$i]}"
     size="$(du -sh -- "$dir" 2>/dev/null | awk '{print $1}')"
-    mtime="$(stat -c '%y' -- "$dir" 2>/dev/null | cut -d'.' -f1)"
+    mtime="$(path_modified_time "$dir")"
     status="$(dub_work_status "$dir")"
     printf '%3d) %-28s status=%-11s size=%8s modified=%s\n' "$((i + 1))" "$(basename "$dir")" "$status" "${size:-?}" "${mtime:-?}"
   done
@@ -735,7 +817,7 @@ clean_mode() {
   fi
 
   local selected=()
-  if [[ "${choice,,}" == "all" ]]; then
+  if [[ "$(to_lower "$choice")" == "all" ]]; then
     selected=("${dirs[@]}")
   else
     local part idx
@@ -764,7 +846,7 @@ clean_mode() {
   fi
 
   for dir in "${selected[@]}"; do
-    resolved="$(realpath -m -- "$dir")"
+    resolved="$(resolve_path "$dir")"
     case "$resolved" in
       "$WORK_DIR"/*)
         if is_reserved_work_dir "$resolved"; then
@@ -794,19 +876,19 @@ fi
 
 parse_args "$@"
 
-SOURCE_LANG="${SOURCE_LANG,,}"
-TARGET_LANG="${TARGET_LANG,,}"
-TRANSLATION_METHOD="${TRANSLATION_METHOD,,}"
-TTS_ENGINE="${TTS_ENGINE,,}"
-LLM_ADAPT="${LLM_ADAPT,,}"
-LLM_SEGMENT="${LLM_SEGMENT,,}"
-LLM_PROVIDER="${LLM_PROVIDER,,}"
-ASR_BACKEND="${ASR_BACKEND,,}"
-DIARIZATION_BACKEND="${DIARIZATION_BACKEND,,}"
-GROQ_RATE_LIMIT="${GROQ_RATE_LIMIT,,}"
-ASR_VAD="${ASR_VAD,,}"
-NO_GPU="${NO_GPU,,}"
-ONLY_CLOUD="${ONLY_CLOUD,,}"
+SOURCE_LANG="$(to_lower "$SOURCE_LANG")"
+TARGET_LANG="$(to_lower "$TARGET_LANG")"
+TRANSLATION_METHOD="$(to_lower "$TRANSLATION_METHOD")"
+TTS_ENGINE="$(to_lower "$TTS_ENGINE")"
+LLM_ADAPT="$(to_lower "$LLM_ADAPT")"
+LLM_SEGMENT="$(to_lower "$LLM_SEGMENT")"
+LLM_PROVIDER="$(to_lower "$LLM_PROVIDER")"
+ASR_BACKEND="$(to_lower "$ASR_BACKEND")"
+DIARIZATION_BACKEND="$(to_lower "$DIARIZATION_BACKEND")"
+GROQ_RATE_LIMIT="$(to_lower "$GROQ_RATE_LIMIT")"
+ASR_VAD="$(to_lower "$ASR_VAD")"
+NO_GPU="$(to_lower "$NO_GPU")"
+ONLY_CLOUD="$(to_lower "$ONLY_CLOUD")"
 
 case "$ONLY_CLOUD" in
   0|false|no) ONLY_CLOUD="0" ;;
@@ -821,6 +903,10 @@ case "$ONLY_CLOUD" in
     ;;
   *) die "--only-cloud/ONLY_CLOUD must be 0 or 1" ;;
 esac
+
+if [[ "$INTEL_MAC" == "1" && ( "$ASR_BACKEND" == "local" || "$DIARIZATION_BACKEND" == "local" || "$TRANSLATION_METHOD" == "local" || "$TTS_ENGINE" == "xtts" || "$TTS_ENGINE" == "kokoro" ) ]]; then
+  VENV_DIR="${WORK_DIR}/venv_macos_intel_py311"
+fi
 
 [[ -n "$TARGET_LANG" ]] || die "Missing required --target-lang CODE"
 [[ -n "$TTS_ENGINE" ]] || die "Missing required --tts-engine xtts|kokoro|edge"
@@ -926,13 +1012,13 @@ if [[ -n "$MIN_SPEAKERS" && -n "$MAX_SPEAKERS" && "$MIN_SPEAKERS" -gt "$MAX_SPEA
 fi
 
 if [[ -n "$INPUT_FILE" ]]; then
-  INPUT_FILE="$(readlink -f "$INPUT_FILE")"
+  INPUT_FILE="$(resolve_path "$INPUT_FILE")"
 fi
 if [[ -n "$OUTPUT_FILE" ]]; then
-  OUTPUT_FILE="$(realpath -m "$OUTPUT_FILE")"
+  OUTPUT_FILE="$(resolve_path "$OUTPUT_FILE")"
 fi
 if [[ -n "$SAMPLE_OUTPUT_DIR" ]]; then
-  SAMPLE_OUTPUT_DIR="$(realpath -m "$SAMPLE_OUTPUT_DIR")"
+  SAMPLE_OUTPUT_DIR="$(resolve_path "$SAMPLE_OUTPUT_DIR")"
 fi
 export TRANSLATION_METHOD TTS_ENGINE
 
@@ -954,7 +1040,14 @@ mkdir -p "$WORK_DIR" "$LOG_DIR" "$TMP_DIR" "$MODELS_DIR" "$HF_HOME_DIR" "$TTS_PR
 
 RUN_ID="$(date +%Y%m%d_%H%M%S)"
 LOG_FILE="${LOG_DIR}/run_${RUN_ID}.log"
-exec > >(tee -a "$LOG_FILE") 2>&1
+# Avoid Bash process substitution here. It relies on /dev/fd, which is not
+# available in some restricted macOS execution environments. A FIFO preserves
+# the same live console output and append-only log without that dependency.
+LOG_PIPE="${TMP_DIR}/autodub_log_${RUN_ID}_$$.pipe"
+mkfifo "$LOG_PIPE"
+tee -a "$LOG_FILE" < "$LOG_PIPE" &
+exec > "$LOG_PIPE" 2>&1
+rm -f "$LOG_PIPE"
 
 on_error() {
   local ec=$?
@@ -966,7 +1059,7 @@ on_error() {
 }
 trap on_error ERR
 
-auto_apt_install() {
+auto_install_system_deps() {
   local missing=()
   local packages=()
   for bin in "$@"; do
@@ -975,54 +1068,121 @@ auto_apt_install() {
   if [[ ${#missing[@]} -eq 0 ]]; then
     return 0
   fi
-  if ! command -v apt-get >/dev/null 2>&1; then
-    warn "Required commands are missing: ${missing[*]}"
-    warn "Install the required system packages and run the script again."
-    return 1
-  fi
   info "Missing system dependencies: ${missing[*]}"
-  info "Attempting installation with apt-get. sudo may prompt for a password..."
   local bin
-  for bin in "${missing[@]}"; do
-    case "$bin" in
-      ffmpeg) packages+=("ffmpeg") ;;
-      python3) packages+=("python3" "python3-venv" "python3-pip") ;;
-      curl) packages+=("curl") ;;
-      espeak-ng) packages+=("espeak-ng") ;;
-      git-lfs) packages+=("git-lfs") ;;
-      *) packages+=("$bin") ;;
-    esac
-  done
-  sudo apt-get update
-  sudo apt-get install -y "${packages[@]}"
+  case "$(uname -s)" in
+    Linux)
+      if ! command -v apt-get >/dev/null 2>&1; then
+        warn "Automatic system dependency installation currently requires apt-get on Linux."
+        warn "Install the required commands and run the script again: ${missing[*]}"
+        return 1
+      fi
+      info "Attempting installation with apt-get. sudo may prompt for a password..."
+      for bin in "${missing[@]}"; do
+        case "$bin" in
+          ffmpeg) packages+=("ffmpeg") ;;
+          python3) packages+=("python3" "python3-venv" "python3-pip") ;;
+          curl) packages+=("curl") ;;
+          espeak-ng) packages+=("espeak-ng") ;;
+          git-lfs) packages+=("git-lfs") ;;
+          *) packages+=("$bin") ;;
+        esac
+      done
+      sudo apt-get update
+      sudo apt-get install -y "${packages[@]}"
+      ;;
+    Darwin)
+      if ! command -v brew >/dev/null 2>&1; then
+        warn "Homebrew is required for automatic dependency installation on macOS."
+        warn "Install Homebrew and these commands, then run the script again: ${missing[*]}"
+        return 1
+      fi
+      info "Attempting installation with Homebrew..."
+      for bin in "${missing[@]}"; do
+        case "$bin" in
+          ffmpeg) packages+=("ffmpeg") ;;
+          python3) packages+=("python") ;;
+          python3.11) packages+=("python@3.11") ;;
+          curl) packages+=("curl") ;;
+          espeak-ng) packages+=("espeak-ng") ;;
+          git-lfs) packages+=("git-lfs") ;;
+          *) packages+=("$bin") ;;
+        esac
+      done
+      HOMEBREW_NO_AUTO_UPDATE=1 brew install "${packages[@]}"
+      hash -r
+      ;;
+    *)
+      warn "Automatic system dependency installation is unsupported on $(uname -s)."
+      warn "Install the required commands and run the script again: ${missing[*]}"
+      return 1
+      ;;
+  esac
 }
 
 ensure_python_venv_support() {
-  python3 -m venv --help >/dev/null 2>&1 && return 0
-  if ! command -v apt-get >/dev/null 2>&1; then
-    die "python3 venv support is missing. Install python3-venv and python3-pip, then run the script again."
-  fi
-  info "python3 venv support is missing. Installing python3-venv and python3-pip..."
-  sudo apt-get update
-  sudo apt-get install -y python3-venv python3-pip
+  local python_bin="${1:-python3}"
+  "$python_bin" -m venv --help >/dev/null 2>&1 && return 0
+  case "$(uname -s)" in
+    Linux)
+      if ! command -v apt-get >/dev/null 2>&1; then
+        die "python3 venv support is missing. Install python3-venv and python3-pip, then run the script again."
+      fi
+      info "python3 venv support is missing. Installing python3-venv and python3-pip..."
+      sudo apt-get update
+      sudo apt-get install -y python3-venv python3-pip
+      ;;
+    Darwin)
+      if ! command -v brew >/dev/null 2>&1; then
+        die "python3 venv support is missing. Install a current Python 3 distribution or Homebrew Python, then run the script again."
+      fi
+      local python_formula="python"
+      if [[ "$python_bin" == "python3.11" ]]; then
+        python_formula="python@3.11"
+      fi
+      info "${python_bin} venv support is missing. Installing Homebrew ${python_formula}..."
+      HOMEBREW_NO_AUTO_UPDATE=1 brew install "$python_formula"
+      hash -r
+      "$python_bin" -m venv --help >/dev/null 2>&1 || die "Homebrew ${python_formula} was installed, but ${python_bin} venv is still unavailable. Check your PATH and run the script again."
+      ;;
+    *)
+      die "python3 venv support is missing. Install Python 3 with venv support, then run the script again."
+      ;;
+  esac
 }
 
 python_imports_ok() {
-  python - <<'PY' >/dev/null 2>&1
+python - <<'PY' >/dev/null 2>&1
 import os
+import subprocess
+import sys
 mods = [
     'soundfile', 'numpy', 'librosa', 'requests'
 ]
 if os.environ.get("ASR_BACKEND", "local") == "local":
-    mods += ['torch', 'torchaudio', 'faster_whisper']
+    mods += ['torch', 'torchaudio']
+    if os.environ.get("INTEL_MAC", "0") == "1":
+        # CTranslate2 and PyTorch bundle different Intel OpenMP runtimes on
+        # Intel macOS. Verify faster-whisper in isolation, as at runtime.
+        subprocess.run([sys.executable, '-c', 'import faster_whisper'], check=True)
+    else:
+        mods += ['faster_whisper']
 if os.environ.get("DIARIZATION_BACKEND", "local") == "local":
     mods += ['torch', 'torchaudio', 'pyannote.audio', 'huggingface_hub']
 if os.environ.get("TRANSLATION_METHOD") == "local":
     mods += ['torch', 'transformers', 'sentencepiece', 'accelerate']
+    if os.environ.get("INTEL_MAC", "0") == "1":
+        from importlib.metadata import version
+        if version('transformers') != '4.46.2':
+            raise RuntimeError('Intel macOS local translation requires transformers==4.46.2')
 if os.environ.get("TRANSLATION_METHOD") == "google":
     mods += ['deep_translator']
 if os.environ.get("TTS_ENGINE") == "xtts":
     mods += ['torch', 'TTS']
+    if os.environ.get("INTEL_MAC", "0") == "1":
+        from importlib.metadata import version
+        if version('coqui-tts') != '0.25.3':
+            raise RuntimeError('Intel macOS XTTS requires coqui-tts==0.25.3')
 if os.environ.get("TTS_ENGINE") == "kokoro":
     mods += ['torch', 'kokoro']
     target = os.environ.get("TARGET_LANG", "").strip().lower()
@@ -1097,7 +1257,7 @@ ensure_cloud_key() {
   [[ -n "$value" ]] || die "No ${key} was provided."
   export "$key=$value"
   read -r -p "Save ${key} to ${SCRIPT_DIR}/.cloud_keys for future runs? [y/N] " save_answer
-  case "${save_answer,,}" in
+  case "$(to_lower "$save_answer")" in
     y|yes|s|si|sì)
       save_cloud_key "$key" "$value"
       info "${key} saved to ${SCRIPT_DIR}/.cloud_keys with restricted permissions."
@@ -1116,8 +1276,23 @@ ensure_ollama_ready() {
     if [[ "$OLLAMA_INSTALL" == "never" ]]; then
       die "Ollama is required by the selected LLM options, but it is not installed."
     fi
-    info "Ollama is not installed. Installing it with the official installer..."
-    curl -fsSL https://ollama.com/install.sh | sh
+    case "$(uname -s)" in
+      Darwin)
+        if ! command -v brew >/dev/null 2>&1; then
+          die "Ollama is required. Install Ollama for macOS from https://ollama.com/download or install Homebrew and run: brew install ollama"
+        fi
+        info "Ollama is not installed. Installing it with Homebrew..."
+        HOMEBREW_NO_AUTO_UPDATE=1 brew install ollama
+        hash -r
+        ;;
+      Linux)
+        info "Ollama is not installed. Installing it with the official installer..."
+        curl -fsSL https://ollama.com/install.sh | sh
+        ;;
+      *)
+        die "Automatic Ollama installation is unsupported on $(uname -s). Install Ollama and run the script again."
+        ;;
+    esac
   fi
 
   if ! ollama_api_ok; then
@@ -1165,7 +1340,7 @@ if [[ "$TTS_CATALOG_ACTION" -eq 0 ]]; then
 fi
 if [[ "$NO_GPU" == "1" ]]; then
   info "GPU usage: disabled by --no-gpu"
-  if ollama_api_ok; then
+  if [[ "$LLM_PROVIDER" == "ollama" ]] && ollama_api_ok; then
     warn "--no-gpu will request num_gpu=0 for Ollama API calls, but an already-running external Ollama server may have been started with its own GPU environment."
   fi
 fi
@@ -1181,12 +1356,20 @@ if [[ "$TTS_CATALOG_ACTION" -eq 0 ]]; then
   fi
   info "LLM segmentation: ${LLM_SEGMENT}"
 fi
-system_deps=(ffmpeg python3 curl)
+SYSTEM_PYTHON_BIN="python3"
+if [[ "$INTEL_MAC" == "1" && "$VENV_DIR" == "${WORK_DIR}/venv_macos_intel_py311" ]]; then
+  SYSTEM_PYTHON_BIN="python3.11"
+fi
+system_deps=(ffmpeg "$SYSTEM_PYTHON_BIN" curl)
 if [[ "$TTS_ENGINE" == "kokoro" ]]; then
   system_deps+=(espeak-ng)
 fi
-auto_apt_install "${system_deps[@]}"
-ensure_python_venv_support
+auto_install_system_deps "${system_deps[@]}"
+ensure_python_venv_support "$SYSTEM_PYTHON_BIN"
+
+# Work around duplicate OpenMP runtimes in mixed ML dependency stacks. This must
+# be set before the dependency import probe as well as before the Python worker.
+export KMP_DUPLICATE_LIB_OK="TRUE"
 
 export HF_HOME="${HF_HOME_DIR}"
 export HF_HUB_CACHE="${HF_HOME_DIR}/hub"
@@ -1205,8 +1388,10 @@ copy_dir_contents() {
   mkdir -p "$dst_dir"
   if command -v rsync >/dev/null 2>&1; then
     rsync -a "$src_dir/" "$dst_dir/"
-  else
+  elif [[ "$(uname -s)" == "Linux" ]]; then
     cp -a "$src_dir/." "$dst_dir/"
+  else
+    cp -Rp "$src_dir/." "$dst_dir/"
   fi
 }
 
@@ -1280,7 +1465,10 @@ fi
 
 if [[ ! -d "$VENV_DIR" ]]; then
   info "Creating the local Python virtual environment..."
-  if command -v python3.12 &>/dev/null; then
+  if [[ "$INTEL_MAC" == "1" ]]; then
+    command -v python3.11 >/dev/null 2>&1 || die "Intel macOS local modes require Python 3.11. Install it with: brew install python@3.11"
+    python3.11 -m venv "$VENV_DIR"
+  elif command -v python3.12 &>/dev/null; then
     python3.12 -m venv "$VENV_DIR"
   else
     python3 -m venv "$VENV_DIR"
@@ -1290,7 +1478,8 @@ fi
 # shellcheck disable=SC1091
 source "$VENV_DIR/bin/activate"
 python -V
-pip install --upgrade pip setuptools wheel
+export PIP_DISABLE_PIP_VERSION_CHECK=1
+export TOKENIZERS_PARALLELISM="false"
 
 GPU_HINT=0
 if [[ "$NO_GPU" != "1" ]] && command -v nvidia-smi >/dev/null 2>&1; then
@@ -1301,6 +1490,7 @@ fi
 if python_imports_ok; then
   info "Python packages are already available in the virtual environment. Reinstallation skipped."
 else
+  pip install --upgrade pip setuptools wheel
   if [[ "$GPU_HINT" -eq 1 ]]; then
     info "NVIDIA GPU detected. Installing CUDA-enabled PyTorch and CUDA runtime packages for faster-whisper."
     if [[ "$ASR_BACKEND" == "local" || "$DIARIZATION_BACKEND" == "local" || "$TRANSLATION_METHOD" == "local" || "$TTS_ENGINE" == "xtts" || "$TTS_ENGINE" == "kokoro" ]]; then
@@ -1309,8 +1499,13 @@ else
     fi
   else
     if [[ "$ASR_BACKEND" == "local" || "$DIARIZATION_BACKEND" == "local" || "$TRANSLATION_METHOD" == "local" || "$TTS_ENGINE" == "xtts" || "$TTS_ENGINE" == "kokoro" ]]; then
-      info "No NVIDIA GPU detected. Installing CPU-only PyTorch."
-      pip install --index-url https://download.pytorch.org/whl/cpu "torch<2.9" "torchaudio<2.9"
+      if [[ "$PLATFORM_SYSTEM" == "Darwin" ]]; then
+        info "Installing the macOS PyTorch packages from PyPI."
+        pip install "torch<2.9" "torchaudio<2.9"
+      else
+        info "No NVIDIA GPU detected. Installing CPU-only PyTorch."
+        pip install --index-url https://download.pytorch.org/whl/cpu "torch<2.9" "torchaudio<2.9"
+      fi
     fi
   fi
 
@@ -1328,14 +1523,25 @@ else
     packages+=("pyannote-audio==3.3.2" "huggingface-hub>=0.34")
   fi
   if [[ "$TRANSLATION_METHOD" == "local" ]]; then
-    packages+=("transformers>=4.57,<5.0" "sentencepiece>=0.2.0" "accelerate>=0.25,<1.0")
+    if [[ "$INTEL_MAC" == "1" ]]; then
+      # Official PyTorch wheels for Intel macOS stop at 2.2.2. Transformers
+      # 4.50+ refuses PyTorch-format checkpoints with torch<2.6, while the
+      # official NLLB checkpoint does not provide safetensors weights.
+      packages+=("transformers==4.46.2" "sentencepiece>=0.2.0" "accelerate>=0.25,<1.0")
+    else
+      packages+=("transformers>=4.57,<5.0" "sentencepiece>=0.2.0" "accelerate>=0.25,<1.0")
+    fi
   elif [[ "$TRANSLATION_METHOD" == "google" ]]; then
     packages+=("deep-translator")
   fi
   if [[ "$TTS_ENGINE" == "xtts" ]]; then
-    packages+=("coqui-tts==0.27.5")
+    if [[ "$INTEL_MAC" == "1" ]]; then
+      packages+=("coqui-tts==0.25.3")
+    else
+      packages+=("coqui-tts==0.27.5")
+    fi
   elif [[ "$TTS_ENGINE" == "kokoro" ]]; then
-    packages+=("kokoro>=0.9.4")
+    packages+=("kokoro>=0.9.4" "click>=8.1")
     if [[ "$TARGET_LANG" == "ja" ]]; then
       packages+=("misaki[ja]>=0.9.4")
     elif [[ "$TARGET_LANG" == "zh" ]]; then
@@ -1579,8 +1785,8 @@ GOOGLE_LANG_ALIASES = {
 
 CJK_LANGS = {"ja", "ko", "zh"}
 UTTERANCE_BOUNDARY_VERSION = 2
-LLM_SEGMENT_PROMPT_VERSION = 1
-LLM_PROMPT_VERSION = 3
+LLM_SEGMENT_PROMPT_VERSION = 2
+LLM_PROMPT_VERSION = 4
 LLM_BUDGET_VERSION = 5
 NLLB_TRANSLATION_UNIT_VERSION = 1
 GOOGLE_TRANSLATION_UNIT_VERSION = 2
@@ -1901,6 +2107,89 @@ def serialize_transcript_segments(asr_segments) -> List[Dict[str, Any]]:
 
 
 def transcribe_audio(audio_path: Path, source_lang: str, model_name: str):
+    if os.environ.get("INTEL_MAC", "0") == "1":
+        # Intel macOS wheels for CTranslate2 and PyTorch bundle different
+        # libiomp5 copies. Loading both into one process can abort or deadlock,
+        # so keep faster-whisper in a short-lived, CPU-only subprocess.
+        worker = r'''
+import json
+import sys
+from pathlib import Path
+
+from faster_whisper import WhisperModel
+
+request = json.loads(sys.stdin.read())
+model = WhisperModel(request["model_name"], device="cpu", compute_type=request["compute_type"])
+kwargs = {
+    "beam_size": request["beam_size"],
+    "word_timestamps": True,
+    "vad_filter": request["vad_filter"],
+    "condition_on_previous_text": False,
+}
+if request["source_lang"] != "auto":
+    kwargs["language"] = request["source_lang"]
+segments, info = model.transcribe(request["audio_path"], **kwargs)
+serialized = []
+for segment in segments:
+    words = []
+    for word in segment.words or []:
+        words.append({
+            "start": float(word.start if word.start is not None else segment.start),
+            "end": float(word.end if word.end is not None else segment.end),
+            "word": str(word.word or ""),
+        })
+    serialized.append({
+        "start": float(segment.start),
+        "end": float(segment.end),
+        "text": str(segment.text or ""),
+        "words": words,
+    })
+Path(sys.argv[1]).write_text(
+    json.dumps({
+        "segments": serialized,
+        "language": str(info.language),
+        "language_probability": float(info.language_probability),
+    }, ensure_ascii=False),
+    encoding="utf-8",
+)
+'''
+        request = {
+            "audio_path": str(audio_path),
+            "source_lang": source_lang,
+            "model_name": model_name,
+            "compute_type": os.environ.get("ASR_COMPUTE_CPU", "int8"),
+            "beam_size": int(os.environ.get("ASR_BEAM", "5")),
+            "vad_filter": os.environ.get("ASR_VAD", "true").lower() == "true",
+        }
+        with tempfile.NamedTemporaryFile(prefix="autodub_whisper_", suffix=".json", delete=False) as handle:
+            result_path = Path(handle.name)
+        try:
+            LOG.info(
+                "ASR with isolated faster-whisper: model=%s device=cpu compute=%s",
+                model_name,
+                request["compute_type"],
+            )
+            completed = subprocess.run(
+                [sys.executable, "-c", worker, str(result_path)],
+                input=json.dumps(request),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            if completed.returncode != 0:
+                details = (completed.stderr or completed.stdout or "no subprocess output").strip()
+                raise RuntimeError(f"isolated faster-whisper failed: {details[-8000:]}")
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+        finally:
+            result_path.unlink(missing_ok=True)
+        LOG.info(
+            "ASR completed: detected_language=%s prob=%.3f segments=%d",
+            result["language"],
+            result["language_probability"],
+            len(result["segments"]),
+        )
+        return result["segments"], result["language"]
+
     torch = _get_torch_module()
     WhisperModel = _get_whisper_model_class()
     preferred = detect_torch_device()
@@ -2594,6 +2883,10 @@ def segment_utterances_with_llm_if_enabled(utterances: List[Dict]) -> List[Dict]
     source_lang = os.environ.get("SOURCE_LANG", "auto").strip().lower()
     try:
         adapter = llm_adapter_for_segmentation(source_lang)
+        if os.environ.get("LLM_PROVIDER", "ollama").strip().lower() == "ollama":
+            # NLLB and the TTS engines need the same system RAM after this
+            # one-shot request, so do not retain the Ollama model on exit.
+            adapter.keep_alive = 0
         prompt = build_llm_segmentation_prompt(utterances, source_lang)
         parsed = adapter._generate(prompt)
         groups = validate_llm_segmentation_groups(parsed.get("groups"), utterances)
@@ -3078,8 +3371,35 @@ class Translator:
         self.tgt_code = tgt_code
         self.device = "cuda" if (os.environ.get("TRANSLATE_ON_GPU", "0") == "1" and torch_cuda_usable()) else "cpu"
         LOG.info("Loading NLLB translator: %s device=%s", model_name, self.device)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name, src_lang=src_code)
-        self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+        model_kwargs = {}
+        model_revision = os.environ.get("NLLB_MODEL_REVISION", "").strip()
+        if model_revision:
+            model_kwargs["revision"] = model_revision
+        if os.environ.get("INTEL_MAC", "0") == "1":
+            # Transformers 4.46 starts an online background safetensors
+            # conversion even when PyTorch weights were requested explicitly.
+            # Download the trusted official files first, then load them from
+            # the same cache offline to avoid duplicating several gigabytes.
+            from huggingface_hub import snapshot_download
+            nllb_cache_dir = os.environ.get("TRANSFORMERS_CACHE") or os.environ.get("HF_HUB_CACHE")
+            snapshot_download(
+                model_name,
+                revision=model_revision or None,
+                cache_dir=nllb_cache_dir,
+                allow_patterns=[
+                    "config.json",
+                    "pytorch_model.bin",
+                    "sentencepiece.bpe.model",
+                    "special_tokens_map.json",
+                    "tokenizer.json",
+                    "tokenizer_config.json",
+                ],
+            )
+            model_kwargs["cache_dir"] = nllb_cache_dir
+            model_kwargs["local_files_only"] = True
+            model_kwargs["use_safetensors"] = False
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, src_lang=src_code, **model_kwargs)
+        self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name, **model_kwargs)
         self.model.to(self.device)
         self.forced_bos = self.tokenizer.convert_tokens_to_ids(tgt_code)
 
@@ -3535,12 +3855,18 @@ class OllamaAdapter:
         self.temperature = float(os.environ.get("LLM_TEMPERATURE", "0.1"))
         self.max_retries = int(os.environ.get("LLM_MAX_RETRIES", "3"))
         self.num_predict = int(os.environ.get("LLM_NUM_PREDICT", "256"))
+        self.keep_alive = None
 
     def _generate(self, prompt: str) -> Dict[str, Any]:
         payload = {
             "model": self.model,
             "prompt": prompt,
             "stream": False,
+            # Qwen3 enables thinking by default in recent Ollama versions. Its
+            # separate reasoning trace can consume the complete num_predict
+            # budget before the JSON response starts. These narrowly scoped
+            # rewriting tasks need the final structured answer, not the trace.
+            "think": False,
             "options": {
                 "temperature": self.temperature,
                 "num_ctx": 4096,
@@ -3549,6 +3875,8 @@ class OllamaAdapter:
         }
         if os.environ.get("AUTODUB_NO_GPU", "0") == "1":
             payload["options"]["num_gpu"] = 0
+        if self.keep_alive is not None:
+            payload["keep_alive"] = self.keep_alive
         request = urllib.request.Request(
             "http://127.0.0.1:11434/api/generate",
             data=json.dumps(payload).encode("utf-8"),
@@ -3561,6 +3889,20 @@ class OllamaAdapter:
         except urllib.error.URLError as exc:
             raise RuntimeError(f"Ollama request failed: {exc}") from exc
         return extract_json_object(data.get("response", ""))
+
+    def unload(self) -> None:
+        payload = {"model": self.model, "prompt": "", "stream": False, "keep_alive": 0}
+        request = urllib.request.Request(
+            "http://127.0.0.1:11434/api/generate",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                response.read()
+        except Exception as exc:
+            LOG.warning("Could not unload Ollama model %s: %s", self.model, exc)
 
     def adapt(self, source_text: str, machine_translation: str, budget: int, min_chars: int = 0) -> Tuple[str, Dict[str, Any]]:
         preferred_line = ""
@@ -3715,6 +4057,7 @@ def adapt_utterances_for_dubbing(translated: List[Dict], target_lang: str) -> Li
         adapter = OllamaAdapter(model, target_lang)
     speaker_rates = speaker_source_char_rates(translated)
     adapted = []
+    adapter_used = False
     for idx, utt in enumerate(translated, start=1):
         machine_translation = translation_text(utt)
         item = dict(utt)
@@ -3736,6 +4079,7 @@ def adapt_utterances_for_dubbing(translated: List[Dict], target_lang: str) -> Li
             }
             adapted.append(item)
             continue
+        adapter_used = True
         new_text, meta = adapter.adapt(str(utt.get("text", "")), machine_translation, budget, min_chars)
         item["text_machine_translated"] = machine_translation
         item["text_translated"] = new_text
@@ -3746,6 +4090,8 @@ def adapt_utterances_for_dubbing(translated: List[Dict], target_lang: str) -> Li
             "LLM adaptation %d/%d: %d -> %d chars (budget=%d preferred_min=%d fits=%s)",
             idx, len(translated), len(machine_translation), len(new_text), budget, min_chars, meta.get("fits_char_budget"),
         )
+    if provider == "ollama" and adapter_used:
+        adapter.unload()
     return adapted
 
 
@@ -4863,6 +5209,9 @@ def main():
         "llm_temperature": float(os.environ.get("LLM_TEMPERATURE", "0.1")),
         "llm_num_predict": int(os.environ.get("LLM_NUM_PREDICT", "256")),
     }
+    nllb_model_revision = os.environ.get("NLLB_MODEL_REVISION", "").strip()
+    if translation_method == "local" and nllb_model_revision:
+        translation_config["nllb_model_revision"] = nllb_model_revision
 
     translation_was_just_created = False
     translated_payload = load_json(translated_json) if translated_json.exists() and translated_json.stat().st_size > 0 else None
@@ -5003,7 +5352,7 @@ PY
 chmod +x "$PY_SCRIPT"
 
 export SCRIPT_DIR WORK_DIR LOG_FILE INPUT_FILE OUTPUT_FILE
-export SOURCE_LANG TARGET_LANG TRANSLATION_METHOD TTS_ENGINE NLLB_SRC_LANG NLLB_TGT_LANG
+export SOURCE_LANG TARGET_LANG TRANSLATION_METHOD TTS_ENGINE NLLB_SRC_LANG NLLB_TGT_LANG NLLB_MODEL_REVISION
 export ONLY_CLOUD ASR_BACKEND DIARIZATION_BACKEND
 export WHISPER_MODEL GROQ_WHISPER_MODEL GROQ_PROMPT GROQ_CHUNK_SECONDS GROQ_OVERLAP_SECONDS GROQ_TIMEOUT GROQ_MAX_RETRIES GROQ_RATE_LIMIT
 export ASSEMBLYAI_SPEECH_MODEL ASSEMBLYAI_POLL_INTERVAL ASSEMBLYAI_TIMEOUT
@@ -5019,8 +5368,6 @@ export LLM_MAX_RETRIES LLM_TEMPERATURE LLM_TIMEOUT LLM_NUM_PREDICT
 export TTS_LOCALE TTS_VOICE_MAP TTS_VOICE_MAP_STRICT TTS_VOICE_FEMALE TTS_VOICE_MALE TTS_VOICE_CHILD
 export TTS_SPEED TTS_MAX_CHARS LIST_TTS_VOICES SAMPLE_TTS_VOICES SAMPLE_TEXT SAMPLE_OUTPUT_DIR
 export EDGE_TTS_PITCH EDGE_TTS_VOLUME EDGE_TTS_CONNECT_TIMEOUT EDGE_TTS_RECEIVE_TIMEOUT EDGE_TTS_MAX_RETRIES EDGE_TTS_RETRY_DELAY
-# Work around OpenMP duplicate-library failures in some ML dependency stacks.
-export KMP_DUPLICATE_LIB_OK="TRUE"
 
 info "Starting the local dubbing pipeline with checkpoint/resume support..."
 python "$PY_SCRIPT"

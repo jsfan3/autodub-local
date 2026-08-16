@@ -1,15 +1,18 @@
-# autodub-local
+# autodub-local: Video Dubbing for Linux and macOS
+
+*[Francesco Galgani](https://www.informatica-libera.net/)*
 
 ```text
 ============================================================
-autodub-local 2.1
+autodub-local 3.0
 Author: Francesco Galgani
 Repository: https://github.com/jsfan3/autodub-local
 License: CC0 - https://creativecommons.org/publicdomain/zero/1.0/
 ============================================================
 ```
 
-Video dubbing using local open-source models, cloud speech/LLM services, local/online TTS engines, or a mixed workflow.
+Video dubbing for Linux and macOS using local open-source models, cloud
+speech/LLM services, local/online TTS engines, or a mixed workflow.
 
 The script processes one explicit input file, translates the spoken content, generates a dubbed audio track, and muxes it back into an MP4 output. It is designed for long recordings such as webinars, livestreams, interviews, public talks, and meetings where perfect lip-sync is not required.
 
@@ -17,6 +20,7 @@ The script processes one explicit input file, translates the spoken content, gen
 
 - [Pipeline](#pipeline)
 - [Operation Modes](#operation-modes)
+- [Agent-Assisted Dubbing](#agent-assisted-dubbing)
 - [Tested Environment](#tested-environment)
 - [Requirements](#requirements)
 - [API Keys And Tokens](#api-keys-and-tokens)
@@ -67,25 +71,110 @@ Cloud mode is not automatically higher quality. It is primarily a low-hardware m
 
 Voice cloning is currently implemented only in local mode through `--tts-engine xtts`.
 
+> **macOS compatibility:** cloud-assisted mode and the complete local pipeline
+> are supported and hardware-validated on Intel macOS, including the stock
+> `/bin/bash` 3.2, faster-whisper, pyannote, NLLB, Ollama/Qwen, Kokoro, and XTTS.
+> Apple Silicon follows the normal macOS dependency path but has not yet been
+> validated on physical Apple Silicon hardware.
+
+## Agent-Assisted Dubbing
+
+[EXAMPLE_OF_AGENT_ASSISTED_USAGE.md](EXAMPLE_OF_AGENT_ASSISTED_USAGE.md) is a
+reusable instruction playbook for an AI coding agent. It is not a second
+executable or a replacement for `autodub_local.sh`: the Bash script performs
+the repeatable dubbing pipeline, while the agent manages a slower,
+publication-oriented review and finishing workflow around it.
+
+If no checkout is available, the playbook instructs the agent to make a normal,
+non-shallow clone of the published repository and work inside it. If a checkout
+already exists, the agent reuses it without overwriting local changes. Model
+caches, virtual environments, API keys, tokens, and other ignored or untracked
+local files are not part of the clone.
+
+The agent-assisted workflow adds work that a single unattended script run
+cannot reliably complete in every source:
+
+- semantic review of the complete transcript and translation using grammar,
+  subject matter, names, terminology, and surrounding context;
+- optional comparison with an independent cloud transcript without silently
+  replacing the local result;
+- verification of speaker assignments, voice mappings, timing, and generated
+  manifests;
+- human approval gates for uncertain corrections, voice choices, translation
+  style, and the final publication render;
+- a semantic pause timeline that distinguishes continuations inside a sentence,
+  clause breaks, completed sentences, emphatic endings, and speaker changes;
+- synchronized removal of selected silence from both audio and video, preserving
+  spoken content and preventing long gaps from breaking sentence flow;
+- resumable long stages, backups, hashes, pilot renders, and detailed final QA;
+- an unobtrusive watermark crediting both `autodub-local` and the original
+  publication URL, plus its license when known.
+
+An agent may also introduce additional evidence-based checks when a particular
+source requires them. For example, if diarization and audio context leave a
+speaker turn ambiguous, the agent may inspect relevant video frames before
+asking the user to resolve the remaining uncertainty.
+
+This human-in-the-loop process takes more time and may require interaction with
+the user, but it can generally produce a more carefully reviewed publication
+master than a fully unattended workflow, especially for difficult speaker
+turns, terminology, translations, or timing decisions. It is a quality-oriented
+workflow, not a guarantee that every source can be corrected automatically.
+
+### Published Agent-Assisted Examples
+
+| Source language | Italian dub |
+|---|---|
+| Russian | [Alla Voronkova - Digiuno secco a cascata, parte 1](https://www.informatica-libera.net/video/AllaVoronkova-DigiunoSeccoACascata-Parte1_IT_dub.mp4) |
+| French | [Nicolas Pilartz - Introduzione all'alimentazione pranica, parte 1](https://www.informatica-libera.net/video/nicolas-pilartz-introduzione-alimentazione-pranica-1.mp4) and [part 2](https://www.informatica-libera.net/video/nicolas-pilartz-introduzione-alimentazione-pranica-2.mp4) |
+| English | [Richard Stallman at Georgia Tech, Italian dub](https://www.informatica-libera.net/video/rms-2026-01-23-georgia-tech-ITALIANO.mp4) |
+
+The Russian and French dubs are shorter than their source videos only because
+selected silence was removed to make listening more fluid; no spoken content
+was removed. The English dub preserves the original pauses, so its duration is
+the same as the source. Each watermark includes the original publication URL
+for anyone who wants to repeat the experiment with the same source material.
+
+These examples were produced with OpenAI Codex using
+[GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol) with
+Extra High (`xhigh`) reasoning effort. This records the agent configuration used
+for these publications; it is not a requirement or a guarantee that another
+run will make identical editorial decisions.
+
 ## Tested Environment
 
-- OS: Linux Mint 22
-- Python: 3.12.3
-- CPU: Intel Core i7-7700HQ
-- RAM: 16 GB
-- GPU: NVIDIA GeForce GTX 1050 Mobile, 4 GB VRAM
+| Platform | Python | CPU/RAM | GPU | Validated workflows |
+|---|---|---|---|---|
+| Linux Mint 22 | 3.12.3 | Intel Core i7-7700HQ, 16 GB | NVIDIA GeForce GTX 1050 Mobile, 4 GB | Cloud-assisted and fully local |
+| macOS 15.7.9, Intel x86_64 | 3.12 for cloud; 3.11 for local | Intel Core i5-1030NG7, 8 GB | Integrated Intel graphics | Cloud-assisted, fully local with Kokoro, and fully local with XTTS |
 
-On this GPU, current PyTorch CUDA wheels do not support the card's compute capability, so torch-based stages fall back to CPU. Ollama may still offload some local LLM work to the GPU when the model fits.
+On the tested Linux GPU, current PyTorch CUDA wheels do not support the card's
+compute capability, so torch-based stages fall back to CPU. Ollama may still
+offload some local LLM work to the GPU when the model fits.
+
+On the tested Intel Mac, a fresh two-minute `--only-cloud` run took about 1
+minute 50 seconds. The fully local pipeline also completed with both Kokoro and
+XTTS, but Qwen inference slowed substantially under sustained CPU load. Expect
+local CPU-only runs on an 8 GB Intel Mac to take tens of minutes, and possibly
+longer when many lines need LLM adaptation. This is a performance limitation,
+not a compatibility failure.
 
 ## Requirements
 
-The script can install missing system packages on Debian/Ubuntu-like systems:
+The script can install missing system packages with `apt-get` on
+Debian/Ubuntu-like systems or with Homebrew on macOS:
 
 - `ffmpeg`
-- `python3-venv`
-- `python3-pip`
+- Python with virtual-environment support
 - `curl`
 - `espeak-ng` for Kokoro TTS
+- Ollama when local LLM work is selected
+
+Install [Homebrew](https://brew.sh/) first if macOS is missing any of these
+dependencies. Intel macOS local modes use a separate Python 3.11 environment,
+created automatically under `.autodub_local/venv_macos_intel_py311`, because
+the compatible PyTorch, Transformers, and XTTS packages require that version.
+Cloud-only mode continues to use the lightweight default environment.
 
 Fully local first runs can download many gigabytes of Python packages and model weights.
 For Kokoro Japanese or Chinese output, the script also installs the matching `misaki` language extras.
@@ -178,8 +267,8 @@ Cloud-assisted output:
 test_IT_only_cloud_edge_dub.mp4
 ```
 
-The version 2.1 cloud sample was regenerated with the current `--only-cloud`
-defaults, including AssemblyAI Universal-3.5 Pro and GPT OSS 120B on Groq.
+The cloud sample was regenerated with the current `--only-cloud` defaults,
+including AssemblyAI Universal-3.5 Pro and GPT OSS 120B on Groq.
 
 Command used:
 
@@ -470,6 +559,12 @@ qwen3:8b-q4_K_M
 
 If `--llm-provider ollama` is used and Ollama or the model is missing, the script attempts to install Ollama and pull the model. Use `--skip-ollama-install` to fail instead.
 
+Local Qwen requests explicitly disable the model's optional thinking trace.
+These operations are narrowly constrained rewriting and JSON-grouping tasks;
+the trace otherwise consumes the local `--llm-num-predict` budget before the
+required JSON answer starts. The model is also unloaded after its last request
+so NLLB and TTS can reuse the RAM, which matters on memory-limited Macs.
+
 Cloud LLM adaptation is available through Groq:
 
 ```bash
@@ -512,6 +607,8 @@ Relevant options:
 GPT OSS requests use a minimum completion ceiling of 1024 tokens so low-effort
 reasoning cannot exhaust the response budget before the required JSON is complete.
 This is a maximum, not a fixed token allocation, and avoids token-wasting retries.
+The local Ollama ceiling remains the configured `--llm-num-predict` value,
+which defaults to 256; it does not limit transcription, translation, or TTS.
 
 ## CPU-Only Runs
 
@@ -528,6 +625,13 @@ Use `--no-gpu` to force CPU mode for local ML stages:
 ```
 
 This hides CUDA/HIP/Vulkan devices from the script process, forces `TRANSLATE_ON_GPU=0`, makes PyTorch-based components choose CPU, and sends `num_gpu=0` in Ollama LLM adaptation requests. If an Ollama server is already running outside the script, `--no-gpu` still requests CPU-only inference through the API, but it cannot fully control the environment that external server was started with.
+
+On the maintainer's older Linux machine, `--no-gpu` is deliberately combined
+with a CPU underclock configured outside this project during long local jobs.
+Both choices substantially increase runtime, but they reduce sustained heat and
+thermal throttling during very high summer ambient temperatures. This is a
+machine-specific reliability and thermal-management tradeoff, not a general
+performance recommendation and not something the script configures itself.
 
 The most practical low-heat combination is now:
 
@@ -702,8 +806,8 @@ Release testing is documented in [TESTING.md](TESTING.md). At minimum, every
 script change should pass:
 
 ```bash
-bash -n autodub_local.sh
-./autodub_local.sh --help
+/bin/bash -n autodub_local.sh
+/bin/bash ./autodub_local.sh --help
 ```
 
 When the embedded Python worker changes, extract and compile it as described in

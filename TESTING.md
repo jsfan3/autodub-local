@@ -9,7 +9,7 @@ some local AI stages can take a long time on older CPU-only machines.
 Run these after every script change:
 
 ```bash
-bash -n autodub_local.sh
+/bin/bash -n autodub_local.sh
 python3 - <<'PY'
 from pathlib import Path
 script = Path("autodub_local.sh").read_text(encoding="utf-8")
@@ -20,8 +20,8 @@ end = script.index(end_marker, start)
 Path("/tmp/autodub_worker_check.py").write_text(script[start:end], encoding="utf-8")
 PY
 python3 -m py_compile /tmp/autodub_worker_check.py
-./autodub_local.sh --help
-./autodub_local.sh clean
+/bin/bash ./autodub_local.sh --help
+/bin/bash ./autodub_local.sh clean
 ```
 
 For `clean`, cancel at the prompt unless the test intentionally validates deletion
@@ -140,6 +140,48 @@ ffprobe -v error \
 
 Repeat the `ffprobe` check for the local output.
 
+## macOS Regression Matrix
+
+Run the fast checks with the system `/bin/bash`; this is Bash 3.2 on the tested
+Intel Mac. Then use a fresh input basename so ASR and diarization are not
+silently satisfied by an older cache.
+
+The minimum release matrix is:
+
+1. One complete `--only-cloud` run with AssemblyAI, Google Translate, Groq, and Edge TTS.
+2. One complete local run with faster-whisper, pyannote, NLLB, Ollama/Qwen, and Kokoro.
+3. One XTTS rerender from the successful local run's cached transcript, diarization, and translation.
+4. Kokoro and Edge voice listing, plus one short sample when their integration changed.
+
+Force CPU execution for the local Intel macOS run:
+
+```bash
+/bin/bash ./autodub_local.sh \
+  --input test.mp4 \
+  --output test_IT_all_local_kokoro_macos_dub.mp4 \
+  --source-lang en \
+  --target-lang it \
+  --translation-method local \
+  --tts-engine kokoro \
+  --num-speakers 2 \
+  --tts-voice-map SPEAKER_00=if_sara,SPEAKER_01=im_nicola \
+  --tts-voice-map-strict \
+  --llm-adapt auto \
+  --llm-segment auto \
+  --no-gpu
+```
+
+For the XTTS variant, reuse the same input and options, change the output name,
+replace `--tts-engine kokoro` with `--tts-engine xtts`, and remove both
+`--tts-voice-map` and `--tts-voice-map-strict`.
+This exercises voice-reference extraction and cloning without needlessly
+repeating the already validated ASR, diarization, NLLB, and Qwen stages.
+
+`--llm-segment auto` intentionally keeps heuristic segmentation in an ordinary
+local run. If local Ollama segmentation code changed, add one targeted
+`--llm-segment always --stop-after-translation` run; do not make this very slow
+Intel-only variant part of every release.
+
 ## Audio Review Points
 
 Listen specifically for:
@@ -163,6 +205,9 @@ or after temporarily moving `.autodub_local/venv` aside:
 - `--translation-method local` should load NLLB and include the NLLB license warning in the README.
 - `--llm-segment auto` should use Groq segmentation in `--only-cloud` and keep heuristic-only segmentation in ordinary local runs.
 - The default Groq LLM should be `openai/gpt-oss-120b`; its requests should use JSON Object Mode with low-effort hidden reasoning.
+- Intel macOS local modes should create and reuse `.autodub_local/venv_macos_intel_py311` with Python 3.11, Transformers 4.46.2, and Coqui TTS 0.25.3.
+- Local Qwen requests should set `think` to false, and the Ollama model should be unloaded before memory-heavy local translation or TTS continues.
+- A fresh macOS run should keep live console output while writing the same content to `.autodub_local/logs/`; this protects the stock-Bash FIFO logging path.
 
 ## Release Gate
 
@@ -172,5 +217,6 @@ Do not publish a release until:
 - `--help` matches the README
 - at least one cloud-assisted translation-only check passes
 - at least one fully local translation-only check passes
+- the macOS matrix passes when a release changes platform or dependency handling
 - the maintainer has listened to the regenerated reference dub files on the target machine
 - license and service-limit notes in the README still match the currently used tools and services

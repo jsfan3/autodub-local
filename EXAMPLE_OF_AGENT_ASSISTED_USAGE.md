@@ -1,6 +1,6 @@
 # Reusable Agent-Assisted Dubbing Workflow
 
-Version: 2026-08-10
+Version: 2026-08-16
 
 If you are a human using `autodub-local` without an AI assistant, use
 `README.md` instead. This document is an instruction file for an AI agent that
@@ -39,6 +39,12 @@ when the user has authorized execution.
   outputs. A revised render gets a new file name unless the user explicitly
   requests replacement.
 - Never expose API keys, `.cloud_keys`, Hugging Face tokens, or other secrets.
+- On the maintainer's older Linux machine, prefer `--no-gpu` for long local
+  jobs and preserve any underclock already configured by the maintainer. This
+  deliberately trades substantial runtime for lower sustained temperature in
+  very hot ambient conditions. Do not change CPU clocks, voltages, or thermal
+  policy without explicit authorization. On other machines, select GPU or CPU
+  execution from actual compatibility and thermal evidence.
 
 ## Discover Before Asking
 
@@ -74,19 +80,28 @@ Append `(<license>)` only when the user supplies or confirms the license.
 ## Workspace and Preflight
 
 1. Work in the directory selected by the user.
-2. Inspect before editing:
-
-```bash
-pwd
-git status --short || true
-rg --files | sed -n '1,160p'
-./autodub_local.sh --help
-```
-
-3. If the repository is absent, obtain it from its official source:
+2. Locate the repository before running project commands. If the current
+   directory is not already an `autodub-local` checkout and no checkout is
+   available in the selected workspace, obtain it from its official source:
 
 ```bash
 git clone https://github.com/jsfan3/autodub-local.git
+cd autodub-local
+```
+
+A plain `git clone` is intentional: do not make a shallow or partial clone. If
+an existing checkout is available, reuse it. Inspect its status and remote
+before fetching or updating it, and never overwrite local changes merely to
+match the remote.
+
+3. Once inside the repository, inspect before editing:
+
+```bash
+pwd
+git remote get-url origin || true
+git status --short || true
+rg --files | sed -n '1,160p'
+/bin/bash ./autodub_local.sh --help
 ```
 
 4. Inspect the source with `ffprobe`: duration, streams, codecs, dimensions,
@@ -177,7 +192,7 @@ For cached local models, force offline behavior where supported:
 
 ```bash
 env HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 TOKENIZERS_PARALLELISM=false \
-  ./autodub_local.sh <adapted arguments>
+  /bin/bash ./autodub_local.sh <adapted arguments>
 ```
 
 Use only options confirmed by the current `--help` and repository code.
@@ -227,7 +242,7 @@ caches.
 Illustrative command shape, to be adapted to the current CLI:
 
 ```bash
-./autodub_local.sh \
+/bin/bash ./autodub_local.sh \
   --input <input-video> \
   --output <unused-pre-tts-output> \
   --source-lang <source-code> \
@@ -237,6 +252,7 @@ Illustrative command shape, to be adapted to the current CLI:
   --num-speakers <count> \
   --stop-after-translation \
   --llm-adapt auto \
+  --no-gpu \
   --tts-voice-map SPEAKER_00=<voice-a>,SPEAKER_01=<voice-b> \
   --tts-voice-map-strict
 ```
@@ -383,10 +399,18 @@ Use a wrapper script that:
 - Writes `FAILED`, an exit code, and a reason on failure.
 - Can resume compatible caches without repeating completed work.
 
-Detach robustly, for example:
+Detach robustly with a platform-appropriate mechanism. On Linux, for example:
 
 ```bash
-setsid -f ./run_stage.sh
+setsid -f /bin/bash ./run_stage.sh
+```
+
+On macOS, where `setsid` is not part of the base system, redirect every stream
+and use `nohup`:
+
+```bash
+nohup /bin/bash ./run_stage.sh \
+  >run_stage.console.log 2>&1 </dev/null &
 ```
 
 Do not assume a background process survived merely because the launch command
