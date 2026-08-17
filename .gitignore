@@ -1,4 +1,5 @@
-.autodub_local/
+# Current runtime state and the pre-hyphen migration source.
+.autodub?local/
 .cloud_keys
 .hf_token
 __pycache__/

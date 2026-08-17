@@ -22,7 +22,8 @@ fi
 export PLATFORM_SYSTEM PLATFORM_MACHINE INTEL_MAC
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-WORK_DIR="${SCRIPT_DIR}/.autodub_local"
+WORK_DIR="${SCRIPT_DIR}/.${PROGRAM_NAME}"
+LEGACY_WORK_DIR="${SCRIPT_DIR}/.${PROGRAM_NAME//-/_}"
 VENV_DIR="${WORK_DIR}/venv"
 LOG_DIR="${WORK_DIR}/logs"
 TMP_DIR="${WORK_DIR}/tmp"
@@ -36,6 +37,20 @@ PY_SCRIPT="${WORK_DIR}/dub_worker.py"
 info() { echo "[$(date +'%F %T')] [INFO] $*"; }
 warn() { echo "[$(date +'%F %T')] [WARN] $*"; }
 die() { echo "[ERROR] $*" >&2; exit 2; }
+
+migrate_legacy_work_dir() {
+  if [[ "$LEGACY_WORK_DIR" == "$WORK_DIR" || ! -e "$LEGACY_WORK_DIR" ]]; then
+    return 0
+  fi
+  if [[ -e "$WORK_DIR" ]]; then
+    warn "Both the current and legacy runtime directories exist. Continuing with: ${WORK_DIR}"
+    warn "Move any reusable legacy files manually after confirming that no current files will be overwritten."
+    return 0
+  fi
+
+  info "Migrating existing runtime state to: ${WORK_DIR}"
+  mv "$LEGACY_WORK_DIR" "$WORK_DIR" || die "Could not migrate the legacy runtime directory to: ${WORK_DIR}"
+}
 
 to_lower() {
   printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]'
@@ -125,11 +140,11 @@ Video dubbing with local/cloud ASR and diarization, sentence-wise NLLB/Google Tr
 XTTS v2, Kokoro, Microsoft Edge TTS, and optional Ollama/Groq LLM text adaptation.
 
 Usage:
-  ./autodub_local.sh clean
-  ./autodub_local.sh --input FILE --source-lang CODE --target-lang CODE --translation-method METHOD --tts-engine ENGINE [options]
-  ./autodub_local.sh --input FILE --source-lang CODE --target-lang CODE --only-cloud [options]
-  ./autodub_local.sh --target-lang CODE --tts-engine ENGINE --list-tts-voices [options]
-  ./autodub_local.sh --target-lang CODE --tts-engine ENGINE --sample-tts-voices [options]
+  ./autodub-local.sh clean
+  ./autodub-local.sh --input FILE --source-lang CODE --target-lang CODE --translation-method METHOD --tts-engine ENGINE [options]
+  ./autodub-local.sh --input FILE --source-lang CODE --target-lang CODE --only-cloud [options]
+  ./autodub-local.sh --target-lang CODE --tts-engine ENGINE --list-tts-voices [options]
+  ./autodub-local.sh --target-lang CODE --tts-engine ENGINE --sample-tts-voices [options]
 
 Required:
   -i, --input FILE              Input video/audio file. Any ffmpeg-readable container is accepted.
@@ -175,7 +190,7 @@ TTS/audio options:
       --list-tts-voices         List voices for --tts-engine and --target-lang, then exit.
       --sample-tts-voices       Generate sample voice audio files, then exit.
       --sample-text TEXT        Text for --sample-tts-voices.
-      --sample-output-dir DIR   Output directory for samples. Default: .autodub_local/samples/<engine>_<locale>
+      --sample-output-dir DIR   Output directory for samples. Default: .autodub-local/samples/<engine>_<locale>
       --edge-pitch VALUE        Edge TTS pitch. Default: +0Hz
       --edge-volume VALUE       Edge TTS volume. Default: +0%
       --edge-connect-timeout N  Edge TTS connect timeout in seconds. Default: 20
@@ -222,11 +237,11 @@ Advanced ASR/segmentation options:
       --log-level LEVEL
 
 Examples:
-  ./autodub_local.sh --input test.mp4 --source-lang en --target-lang it --translation-method google --tts-engine edge --tts-voice-map SPEAKER_00=it-IT-GiuseppeMultilingualNeural,SPEAKER_01=it-IT-DiegoNeural
-  ./autodub_local.sh -i talk.webm --source-lang auto --target-lang fr --translation-method local --tts-engine xtts
-  ./autodub_local.sh -i interview.mkv --source-lang en --target-lang es --translation-method local --tts-engine kokoro
-  ./autodub_local.sh --target-lang it --tts-engine edge --list-tts-voices
-  ./autodub_local.sh --target-lang it --tts-engine edge --sample-tts-voices --sample-text "Questo è un test con free software e Georgia Tech."
+  ./autodub-local.sh --input test.mp4 --source-lang en --target-lang it --translation-method google --tts-engine edge --tts-voice-map SPEAKER_00=it-IT-GiuseppeMultilingualNeural,SPEAKER_01=it-IT-DiegoNeural
+  ./autodub-local.sh -i talk.webm --source-lang auto --target-lang fr --translation-method local --tts-engine xtts
+  ./autodub-local.sh -i interview.mkv --source-lang en --target-lang es --translation-method local --tts-engine kokoro
+  ./autodub-local.sh --target-lang it --tts-engine edge --list-tts-voices
+  ./autodub-local.sh --target-lang it --tts-engine edge --sample-tts-voices --sample-text "Questo è un test con free software e Georgia Tech."
 
 Supported XTTS target languages:
   ar, cs, de, en, es, fr, hi, hu, it, ja, ko, nl, pl, pt, ru, tr, zh
@@ -866,8 +881,9 @@ if [[ $# -gt 0 ]]; then
   for raw_arg in "$@"; do
     if [[ "$raw_arg" == "clean" || "$raw_arg" == "--clean" ]]; then
       if [[ $# -ne 1 || ( "$1" != "clean" && "$1" != "--clean" ) ]]; then
-        die "clean must be used alone: ./autodub_local.sh clean"
+        die "clean must be used alone: ./autodub-local.sh clean"
       fi
+      migrate_legacy_work_dir
       clean_mode
       exit 0
     fi
@@ -1036,6 +1052,7 @@ if [[ "$NO_GPU" == "1" ]]; then
   export OLLAMA_LLM_LIBRARY="${OLLAMA_LLM_LIBRARY:-cpu}"
 fi
 
+migrate_legacy_work_dir
 mkdir -p "$WORK_DIR" "$LOG_DIR" "$TMP_DIR" "$MODELS_DIR" "$HF_HOME_DIR" "$TTS_PREFIX_DIR" "$TTS_CACHE_DIR" "$XDG_DATA_DIR"
 
 RUN_ID="$(date +%Y%m%d_%H%M%S)"
@@ -1475,8 +1492,10 @@ if [[ ! -d "$VENV_DIR" ]]; then
   fi
 fi
 
-# shellcheck disable=SC1091
-source "$VENV_DIR/bin/activate"
+export VIRTUAL_ENV="$VENV_DIR"
+export PATH="$VENV_DIR/bin:$PATH"
+unset PYTHONHOME
+hash -r
 python -V
 export PIP_DISABLE_PIP_VERSION_CHECK=1
 export TOKENIZERS_PARALLELISM="false"
@@ -1490,21 +1509,21 @@ fi
 if python_imports_ok; then
   info "Python packages are already available in the virtual environment. Reinstallation skipped."
 else
-  pip install --upgrade pip setuptools wheel
+  python -m pip install --upgrade pip setuptools wheel
   if [[ "$GPU_HINT" -eq 1 ]]; then
     info "NVIDIA GPU detected. Installing CUDA-enabled PyTorch and CUDA runtime packages for faster-whisper."
     if [[ "$ASR_BACKEND" == "local" || "$DIARIZATION_BACKEND" == "local" || "$TRANSLATION_METHOD" == "local" || "$TTS_ENGINE" == "xtts" || "$TTS_ENGINE" == "kokoro" ]]; then
-      pip install --index-url https://download.pytorch.org/whl/cu128 "torch<2.9" "torchaudio<2.9"
-      pip install "nvidia-cublas-cu12" "nvidia-cudnn-cu12==9.*"
+      python -m pip install --index-url https://download.pytorch.org/whl/cu128 "torch<2.9" "torchaudio<2.9"
+      python -m pip install "nvidia-cublas-cu12" "nvidia-cudnn-cu12==9.*"
     fi
   else
     if [[ "$ASR_BACKEND" == "local" || "$DIARIZATION_BACKEND" == "local" || "$TRANSLATION_METHOD" == "local" || "$TTS_ENGINE" == "xtts" || "$TTS_ENGINE" == "kokoro" ]]; then
       if [[ "$PLATFORM_SYSTEM" == "Darwin" ]]; then
         info "Installing the macOS PyTorch packages from PyPI."
-        pip install "torch<2.9" "torchaudio<2.9"
+        python -m pip install "torch<2.9" "torchaudio<2.9"
       else
         info "No NVIDIA GPU detected. Installing CPU-only PyTorch."
-        pip install --index-url https://download.pytorch.org/whl/cpu "torch<2.9" "torchaudio<2.9"
+        python -m pip install --index-url https://download.pytorch.org/whl/cpu "torch<2.9" "torchaudio<2.9"
       fi
     fi
   fi
@@ -1551,7 +1570,7 @@ else
     packages+=("edge-tts>=7.2.8")
   fi
   info "Installing or updating Python packages for translation=${TRANSLATION_METHOD:-none} tts=${TTS_ENGINE}..."
-  pip install "${packages[@]}"
+  python -m pip install "${packages[@]}"
 fi
 
 if [[ "$GPU_HINT" -eq 1 ]]; then
@@ -3002,7 +3021,7 @@ _EDGE_ALL_VOICES_CACHE: Optional[List[Dict[str, Any]]] = None
 
 
 def edge_voice_cache_file() -> Path:
-    return Path(os.environ.get("XDG_CACHE_HOME") or ".autodub_local/cache") / "edge_tts_voices.json"
+    return Path(os.environ.get("XDG_CACHE_HOME") or ".autodub-local/cache") / "edge_tts_voices.json"
 
 
 def load_cached_edge_voices() -> Optional[List[Dict[str, Any]]]:

@@ -9,10 +9,10 @@ some local AI stages can take a long time on older CPU-only machines.
 Run these after every script change:
 
 ```bash
-/bin/bash -n autodub_local.sh
+/bin/bash -n autodub-local.sh
 python3 - <<'PY'
 from pathlib import Path
-script = Path("autodub_local.sh").read_text(encoding="utf-8")
+script = Path("autodub-local.sh").read_text(encoding="utf-8")
 start_marker = "cat > \"$PY_SCRIPT\" <<'PY'\n"
 end_marker = "\nPY\nchmod +x \"$PY_SCRIPT\""
 start = script.index(start_marker) + len(start_marker)
@@ -20,26 +20,43 @@ end = script.index(end_marker, start)
 Path("/tmp/autodub_worker_check.py").write_text(script[start:end], encoding="utf-8")
 PY
 python3 -m py_compile /tmp/autodub_worker_check.py
-/bin/bash ./autodub_local.sh --help
-/bin/bash ./autodub_local.sh clean
+/bin/bash ./autodub-local.sh --help
+/bin/bash ./autodub-local.sh clean
 ```
 
 For `clean`, cancel at the prompt unless the test intentionally validates deletion
 against a disposable work folder.
+
+Verify the one-time runtime-directory migration in an isolated temporary copy,
+never against the real model cache:
+
+```bash
+migration_test_root="$(mktemp -d)"
+trap 'rm -rf -- "$migration_test_root"' EXIT
+cp ./autodub-local.sh "$migration_test_root/"
+legacy_runtime_name=".$(printf '%s' autodub-local | tr '-' '_')"
+python3 -m venv "$migration_test_root/$legacy_runtime_name/venv"
+mkdir -p "$migration_test_root/$legacy_runtime_name/migration_marker"
+/bin/bash "$migration_test_root/autodub-local.sh" clean </dev/null
+test -d "$migration_test_root/.autodub-local/migration_marker"
+test ! -e "$migration_test_root/$legacy_runtime_name"
+"$migration_test_root/.autodub-local/venv/bin/python" -c \
+  'import pathlib, sys; assert pathlib.Path(sys.prefix).name == "venv"'
+```
 
 ## Voice Catalog Checks
 
 Run at least one voice listing for each non-cloning TTS engine touched by a release:
 
 ```bash
-./autodub_local.sh --target-lang it --tts-engine edge --list-tts-voices
-./autodub_local.sh --target-lang it --tts-engine kokoro --list-tts-voices
+./autodub-local.sh --target-lang it --tts-engine edge --list-tts-voices
+./autodub-local.sh --target-lang it --tts-engine kokoro --list-tts-voices
 ```
 
 When Edge TTS logic changes, also generate a small voice sample:
 
 ```bash
-./autodub_local.sh \
+./autodub-local.sh \
   --target-lang it \
   --tts-engine edge \
   --sample-tts-voices \
@@ -54,9 +71,9 @@ diarization, translation, and LLM adaptation while avoiding a full TTS pass.
 Cloud-assisted smoke test:
 
 ```bash
-./autodub_local.sh \
+./autodub-local.sh \
   --input test.mp4 \
-  --output .autodub_local/tmp/test_cloud_unused.mp4 \
+  --output .autodub-local/tmp/test_cloud_unused.mp4 \
   --source-lang en \
   --target-lang it \
   --only-cloud \
@@ -68,9 +85,9 @@ Cloud-assisted smoke test:
 Fully local smoke test:
 
 ```bash
-./autodub_local.sh \
+./autodub-local.sh \
   --input test.mp4 \
-  --output .autodub_local/tmp/test_local_unused.mp4 \
+  --output .autodub-local/tmp/test_local_unused.mp4 \
   --source-lang en \
   --target-lang it \
   --translation-method local \
@@ -96,13 +113,13 @@ Before a GitHub release, regenerate both reference outputs from a clean per-inpu
 work folder and listen to the result:
 
 ```bash
-./autodub_local.sh clean
+./autodub-local.sh clean
 ```
 
 Cloud-assisted reference run:
 
 ```bash
-/usr/bin/time -p ./autodub_local.sh \
+/usr/bin/time -p ./autodub-local.sh \
   --input test.mp4 \
   --output test_IT_only_cloud_edge_dub.mp4 \
   --source-lang en \
@@ -115,7 +132,7 @@ Cloud-assisted reference run:
 Fully local reference run:
 
 ```bash
-/usr/bin/time -p ./autodub_local.sh \
+/usr/bin/time -p ./autodub-local.sh \
   --input test.mp4 \
   --output test_IT_all_local_kokoro_dub.mp4 \
   --source-lang en \
@@ -156,7 +173,7 @@ The minimum release matrix is:
 Force CPU execution for the local Intel macOS run:
 
 ```bash
-/bin/bash ./autodub_local.sh \
+/bin/bash ./autodub-local.sh \
   --input test.mp4 \
   --output test_IT_all_local_kokoro_macos_dub.mp4 \
   --source-lang en \
@@ -196,7 +213,7 @@ Listen specifically for:
 ## Dependency Checks
 
 For releases that touch dependency selection, test these paths in a fresh venv
-or after temporarily moving `.autodub_local/venv` aside:
+or after temporarily moving `.autodub-local/venv` aside:
 
 - `--only-cloud` should not require local Whisper, pyannote, NLLB, Kokoro, XTTS, or Ollama model downloads.
 - `--tts-engine edge` should install `edge-tts`, not Kokoro or XTTS.
@@ -205,9 +222,9 @@ or after temporarily moving `.autodub_local/venv` aside:
 - `--translation-method local` should load NLLB and include the NLLB license warning in the README.
 - `--llm-segment auto` should use Groq segmentation in `--only-cloud` and keep heuristic-only segmentation in ordinary local runs.
 - The default Groq LLM should be `openai/gpt-oss-120b`; its requests should use JSON Object Mode with low-effort hidden reasoning.
-- Intel macOS local modes should create and reuse `.autodub_local/venv_macos_intel_py311` with Python 3.11, Transformers 4.46.2, and Coqui TTS 0.25.3.
+- Intel macOS local modes should create and reuse `.autodub-local/venv_macos_intel_py311` with Python 3.11, Transformers 4.46.2, and Coqui TTS 0.25.3.
 - Local Qwen requests should set `think` to false, and the Ollama model should be unloaded before memory-heavy local translation or TTS continues.
-- A fresh macOS run should keep live console output while writing the same content to `.autodub_local/logs/`; this protects the stock-Bash FIFO logging path.
+- A fresh macOS run should keep live console output while writing the same content to `.autodub-local/logs/`; this protects the stock-Bash FIFO logging path.
 
 ## Release Gate
 

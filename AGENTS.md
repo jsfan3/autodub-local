@@ -1,16 +1,16 @@
 # Agent Instructions
 
-This repository contains a single Bash entrypoint, `autodub_local.sh`, with an
+This repository contains a single Bash entrypoint, `autodub-local.sh`, with an
 embedded Python worker generated at runtime. Linux and macOS are both supported
 release platforms. Real audio quality checks matter more than synthetic unit
 tests alone.
 
 ## Project Shape
 
-- Main script: `autodub_local.sh`
+- Main script: `autodub-local.sh`
 - User documentation: `README.md`
 - Release checklist: `TESTING.md`
-- Generated runtime state: `.autodub_local/`
+- Generated runtime state: `.autodub-local/`
 - Hugging Face token: `.hf_token`
 - Cloud keys: `.cloud_keys`
 
@@ -19,18 +19,18 @@ must remain local-only files with restricted permissions.
 
 ## Runtime State
 
-`.autodub_local/` contains both disposable and persistent data:
+`.autodub-local/` contains both disposable and persistent data:
 
-- Disposable per-input work folders: `.autodub_local/<input_stem>/`
-- Persistent models: `.autodub_local/models/`
-- Persistent Python environment: `.autodub_local/venv/`
-- Persistent Intel macOS local environment: `.autodub_local/venv_macos_intel_py311/`
-- Logs: `.autodub_local/logs/`
-- Shared caches: `.autodub_local/cache/`
-- Miscellaneous temporary data: `.autodub_local/tmp/`
+- Disposable per-input work folders: `.autodub-local/<input_stem>/`
+- Persistent models: `.autodub-local/models/`
+- Persistent Python environment: `.autodub-local/venv/`
+- Persistent Intel macOS local environment: `.autodub-local/venv_macos_intel_py311/`
+- Logs: `.autodub-local/logs/`
+- Shared caches: `.autodub-local/cache/`
+- Miscellaneous temporary data: `.autodub-local/tmp/`
 
 Do not delete models, virtual environments, logs, shared caches, or tokens
-unless the maintainer explicitly requests it. Use `./autodub_local.sh clean`
+unless the maintainer explicitly requests it. Use `./autodub-local.sh clean`
 for ordinary per-input work-folder cleanup.
 
 ## Implementation Rules
@@ -53,7 +53,7 @@ for ordinary per-input work-folder cleanup.
 Cloud-assisted reference workflow:
 
 ```bash
-/bin/bash ./autodub_local.sh \
+/bin/bash ./autodub-local.sh \
   --input test.mp4 \
   --output test_IT_only_cloud_edge_dub.mp4 \
   --source-lang en \
@@ -66,7 +66,7 @@ Cloud-assisted reference workflow:
 Fully local reference workflow:
 
 ```bash
-/bin/bash ./autodub_local.sh \
+/bin/bash ./autodub-local.sh \
   --input test.mp4 \
   --output test_IT_all_local_kokoro_dub.mp4 \
   --source-lang en \
@@ -84,8 +84,8 @@ Fully local reference workflow:
 Use `TESTING.md` as the release gate. For ordinary code edits, run at least:
 
 ```bash
-/bin/bash -n autodub_local.sh
-/bin/bash ./autodub_local.sh --help
+/bin/bash -n autodub-local.sh
+/bin/bash ./autodub-local.sh --help
 ```
 
 When the embedded Python worker changes, extract and compile it as described in

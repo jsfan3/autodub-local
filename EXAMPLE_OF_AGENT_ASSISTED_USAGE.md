@@ -1,6 +1,6 @@
 # Reusable Agent-Assisted Dubbing Workflow
 
-Version: 2026-08-16
+Version: 2026-08-17
 
 If you are a human using `autodub-local` without an AI assistant, use
 `README.md` instead. This document is an instruction file for an AI agent that
@@ -39,12 +39,14 @@ when the user has authorized execution.
   outputs. A revised render gets a new file name unless the user explicitly
   requests replacement.
 - Never expose API keys, `.cloud_keys`, Hugging Face tokens, or other secrets.
-- On the maintainer's older Linux machine, prefer `--no-gpu` for long local
-  jobs and preserve any underclock already configured by the maintainer. This
-  deliberately trades substantial runtime for lower sustained temperature in
-  very hot ambient conditions. Do not change CPU clocks, voltages, or thermal
-  policy without explicit authorization. On other machines, select GPU or CPU
-  execution from actual compatibility and thermal evidence.
+- Before any local or mixed workflow, explicitly ask whether the user wants to
+  force every supported local ML stage onto the CPU with `--no-gpu`, or allows
+  the script to try compatible GPU acceleration. Do not infer this preference
+  from the computer's owner or hardware.
+- Explain that CPU-only execution can be substantially slower but may be useful
+  for thermal, power, or compatibility reasons. If GPU use is allowed, verify
+  the actual runtime and model compatibility before relying on it. Never change
+  CPU/GPU clocks, voltages, or thermal policy without explicit authorization.
 
 ## Discover Before Asking
 
@@ -63,6 +65,9 @@ Determine or ask for the following when it is not already supplied:
   speech-only talk or video call, default to a clean dubbed voice track.
 - Whether an auxiliary cloud transcript is authorized and which configured
   service may be used.
+- For every local or mixed workflow, whether local ML stages must be CPU-only
+  or may try compatible GPU acceleration. Ask this explicitly even when the
+  hardware can be inspected.
 - Original publication URL for attribution.
 - License, only if known.
 - Any required trims, exclusions, terminology, pronunciation, or naming rules.
@@ -101,21 +106,23 @@ pwd
 git remote get-url origin || true
 git status --short || true
 rg --files | sed -n '1,160p'
-/bin/bash ./autodub_local.sh --help
+/bin/bash ./autodub-local.sh --help
 ```
 
 4. Inspect the source with `ffprobe`: duration, streams, codecs, dimensions,
    frame rate, audio sample rate, and channel count.
 5. Check free disk space and estimate the space required for extracted PCM,
    TTS segments, clean masters, previews, and final renders.
-6. Inspect `.autodub_local` before downloading or reinstalling anything. Reuse
+6. Inspect `.autodub-local` before downloading or reinstalling anything. Reuse
    a valid environment and cached models.
 7. Report only whether credential files or tokens exist, never their contents.
 8. Before an offline stage, verify that every required model and Python package
    is already available. Download missing assets while Internet access exists.
-9. Check GPU compatibility rather than assuming that the presence of a GPU
-   means the installed PyTorch build can use it. Prefer a known-working CPU run
-   over an incompatible or risky runtime change.
+9. Inspect GPU and runtime compatibility so the user's CPU/GPU choice is
+   informed. When GPU use is allowed, confirm that the installed runtime and
+   selected models can actually use it; otherwise explain the incompatibility
+   and use a known-working CPU path. When CPU-only execution is selected, add
+   `--no-gpu` to every applicable script invocation.
 
 Record exact paths and SHA-256 hashes for operational JSON files before and
 after every approved review.
@@ -192,7 +199,7 @@ For cached local models, force offline behavior where supported:
 
 ```bash
 env HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 TOKENIZERS_PARALLELISM=false \
-  /bin/bash ./autodub_local.sh <adapted arguments>
+  /bin/bash ./autodub-local.sh <adapted arguments>
 ```
 
 Use only options confirmed by the current `--help` and repository code.
@@ -242,7 +249,7 @@ caches.
 Illustrative command shape, to be adapted to the current CLI:
 
 ```bash
-/bin/bash ./autodub_local.sh \
+/bin/bash ./autodub-local.sh \
   --input <input-video> \
   --output <unused-pre-tts-output> \
   --source-lang <source-code> \
@@ -252,12 +259,13 @@ Illustrative command shape, to be adapted to the current CLI:
   --num-speakers <count> \
   --stop-after-translation \
   --llm-adapt auto \
-  --no-gpu \
   --tts-voice-map SPEAKER_00=<voice-a>,SPEAKER_01=<voice-b> \
   --tts-voice-map-strict
 ```
 
 Add or remove speaker mappings to match the actual speaker count exactly.
+Add `--no-gpu` when the user selected CPU-only execution; omit it when the user
+allowed compatible GPU acceleration.
 
 ## Stage 5: Complete Translation Review
 

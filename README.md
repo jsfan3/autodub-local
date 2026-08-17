@@ -1,8 +1,6 @@
 # autodub-local: Video Dubbing for Linux and macOS
 
-> **autodub-local 3.0**
-> Created by [Francesco Galgani](https://www.informatica-libera.net/)
-> [Source repository](https://github.com/jsfan3/autodub-local) · [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)
+> **autodub-local 3.0**<br>Created by [Francesco Galgani](https://www.informatica-libera.net/)<br>[Source repository](https://github.com/jsfan3/autodub-local) · [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)
 
 Video dubbing for Linux and macOS using local open-source models, cloud
 speech/LLM services, local/online TTS engines, or a mixed workflow.
@@ -50,7 +48,11 @@ The script processes one explicit input file, translates the spoken content, gen
 8. Safely time-stretch only when the tempo change is small
 9. Assemble the dubbed timeline and mux it into an MP4 output
 
-The script supports checkpoint/resume under `.autodub_local/`.
+The script supports checkpoint/resume under `.autodub-local/`.
+On the first operational command after upgrading, the script automatically
+moves an older underscore-named runtime directory to this path when the new path
+does not yet exist. If both directories exist, it keeps using `.autodub-local/`
+and warns instead of merging or overwriting files.
 
 ## Operation Modes
 
@@ -74,7 +76,7 @@ Voice cloning is currently implemented only in local mode through `--tts-engine 
 
 [EXAMPLE_OF_AGENT_ASSISTED_USAGE.md](EXAMPLE_OF_AGENT_ASSISTED_USAGE.md) is a
 reusable instruction playbook for an AI coding agent. It is not a second
-executable or a replacement for `autodub_local.sh`: the Bash script performs
+executable or a replacement for `autodub-local.sh`: the Bash script performs
 the repeatable dubbing pipeline, while the agent manages a slower,
 publication-oriented review and finishing workflow around it.
 
@@ -177,7 +179,7 @@ Debian/Ubuntu-like systems or with Homebrew on macOS:
 
 Install [Homebrew](https://brew.sh/) first if macOS is missing any of these
 dependencies. Intel macOS local modes use a separate Python 3.11 environment,
-created automatically under `.autodub_local/venv_macos_intel_py311`, because
+created automatically under `.autodub-local/venv_macos_intel_py311`, because
 the compatible PyTorch, Transformers, and XTTS packages require that version.
 Cloud-only mode continues to use the lightweight default environment.
 
@@ -218,8 +220,8 @@ If a required cloud key is missing in an interactive terminal, the script prompt
 There are no default input files, language pairs, translation methods, or TTS engines. Pass one input file and all required choices explicitly:
 
 ```bash
-chmod +x autodub_local.sh
-./autodub_local.sh \
+chmod +x autodub-local.sh
+./autodub-local.sh \
   --input test.mp4 \
   --source-lang en \
   --target-lang it \
@@ -245,7 +247,7 @@ Use `--output` to choose a different path.
 ## Help
 
 ```bash
-./autodub_local.sh --help
+./autodub-local.sh --help
 ```
 
 ## Cleanup
@@ -253,11 +255,11 @@ Use `--output` to choose a different path.
 Per-input temporary work folders can be listed and removed interactively:
 
 ```bash
-./autodub_local.sh clean
+./autodub-local.sh clean
 ```
 
 `clean` is an exclusive maintenance command: use it by itself. It lists the
-per-input folders under `.autodub_local/`, shows status, size, and modification
+per-input folders under `.autodub-local/`, shows status, size, and modification
 time, then lets you delete all or selected folders. It does not delete persistent
 models, the Python virtual environment, shared caches, logs, `.hf_token`, or
 `.cloud_keys`.
@@ -278,7 +280,7 @@ including AssemblyAI Universal-3.5 Pro and GPT OSS 120B on Groq.
 Command used:
 
 ```bash
-./autodub_local.sh \
+./autodub-local.sh \
   --input test.mp4 \
   --output test_IT_only_cloud_edge_dub.mp4 \
   --source-lang en \
@@ -299,7 +301,7 @@ test_IT_all_local_kokoro_dub.mp4
 Command used:
 
 ```bash
-./autodub_local.sh \
+./autodub-local.sh \
   --input test.mp4 \
   --output test_IT_all_local_kokoro_dub.mp4 \
   --source-lang en \
@@ -319,7 +321,7 @@ than the cloud-assisted run. That difference is significant, but still
 reasonable when the computer can be left running for long jobs and privacy or
 offline reproducibility matters.
 
-After installing and testing both workflows on this machine, `.autodub_local/`
+After installing and testing both workflows on this machine, `.autodub-local/`
 occupied about `18G`, including about `8.1G` for models, `8.0G` for the Python
 virtual environment, and `1.3G` for shared caches. A fresh `--only-cloud`
 workflow should avoid the local Whisper, pyannote, NLLB, Kokoro/XTTS, and
@@ -331,7 +333,7 @@ runtime packages.
 Cloud-assisted English to Italian with AssemblyAI diarization, Google Translate, Groq LLM adaptation, and Microsoft Edge TTS:
 
 ```bash
-./autodub_local.sh \
+./autodub-local.sh \
   --input test.mp4 \
   --output test_IT_only_cloud_edge_dub.mp4 \
   --source-lang en \
@@ -344,7 +346,7 @@ Cloud-assisted English to Italian with AssemblyAI diarization, Google Translate,
 Fully local English to Italian with faster-whisper, pyannote, NLLB, Ollama, and Kokoro preset voices:
 
 ```bash
-./autodub_local.sh \
+./autodub-local.sh \
   --input test.mp4 \
   --output test_IT_all_local_kokoro_dub.mp4 \
   --source-lang en \
@@ -360,7 +362,7 @@ Fully local English to Italian with faster-whisper, pyannote, NLLB, Ollama, and 
 English to Italian with Google Translate, Microsoft Edge TTS, automatic speaker count, and explicit speaker voices:
 
 ```bash
-./autodub_local.sh \
+./autodub-local.sh \
   --input test.mp4 \
   --source-lang en \
   --target-lang it \
@@ -373,7 +375,7 @@ English to Italian with Google Translate, Microsoft Edge TTS, automatic speaker 
 List Edge voices for Italian:
 
 ```bash
-./autodub_local.sh \
+./autodub-local.sh \
   --target-lang it \
   --tts-engine edge \
   --list-tts-voices
@@ -382,7 +384,7 @@ List Edge voices for Italian:
 Generate local Edge voice samples before choosing a voice map:
 
 ```bash
-./autodub_local.sh \
+./autodub-local.sh \
   --target-lang it \
   --tts-engine edge \
   --sample-tts-voices \
@@ -392,7 +394,7 @@ Generate local Edge voice samples before choosing a voice map:
 Auto-detected source language to French with local NLLB and XTTS voice cloning:
 
 ```bash
-./autodub_local.sh \
+./autodub-local.sh \
   --input talk.webm \
   --source-lang auto \
   --target-lang fr \
@@ -403,7 +405,7 @@ Auto-detected source language to French with local NLLB and XTTS voice cloning:
 Diagnostic run without LLM shortening, useful only for inspecting raw translation output:
 
 ```bash
-./autodub_local.sh \
+./autodub-local.sh \
   --input interview.mkv \
   --source-lang en \
   --target-lang es \
@@ -417,7 +419,7 @@ Do not use `--llm-adapt never` for final dubs unless you explicitly want to skip
 Stop after translation for review or testing:
 
 ```bash
-./autodub_local.sh \
+./autodub-local.sh \
   --input test.mp4 \
   --source-lang en \
   --target-lang it \
@@ -429,7 +431,7 @@ Stop after translation for review or testing:
 Use strict voice mapping when the detected speaker set must match exactly:
 
 ```bash
-./autodub_local.sh \
+./autodub-local.sh \
   --input panel.mp4 \
   --source-lang en \
   --target-lang it \
@@ -445,7 +447,7 @@ Use strict voice mapping when the detected speaker set must match exactly:
 Maintenance command:
 
 ```bash
-./autodub_local.sh clean
+./autodub-local.sh clean
 ```
 
 Use `clean` by itself. It is not a dubbing option and cannot be combined with
@@ -514,7 +516,7 @@ Edge TTS uses Microsoft locales such as `it-IT`, `en-US`, `en-GB`, or `pt-BR`. U
 
 `--tts-engine kokoro` uses local Kokoro preset voices. It does not clone the original speakers. The script estimates each diarized speaker's rough pitch, classifies the speaker as `male`, `female`, or `child`, and assigns a target-language voice. Child fallback uses a female voice when no child-specific voice is available. Pitch shift is not applied automatically.
 
-`--tts-engine edge` uses Microsoft Edge online neural voices through `edge-tts`. It does not require a GPU and it can pronounce many English terms correctly inside non-English text, depending on the voice. It is not an official stable Microsoft API like Azure Speech, so availability and behavior can change. The Edge voice catalog is cached in `.autodub_local/cache/edge_tts_voices.json` after a successful lookup, but speech synthesis still requires access to the online service.
+`--tts-engine edge` uses Microsoft Edge online neural voices through `edge-tts`. It does not require a GPU and it can pronounce many English terms correctly inside non-English text, depending on the voice. It is not an official stable Microsoft API like Azure Speech, so availability and behavior can change. The Edge voice catalog is cached in `.autodub-local/cache/edge_tts_voices.json` after a successful lookup, but speech synthesis still requires access to the online service.
 
 ## Voice Selection
 
@@ -539,15 +541,15 @@ Override automatic class defaults:
 List voices:
 
 ```bash
-./autodub_local.sh --target-lang it --tts-engine edge --list-tts-voices
-./autodub_local.sh --target-lang it --tts-engine kokoro --list-tts-voices
+./autodub-local.sh --target-lang it --tts-engine edge --list-tts-voices
+./autodub-local.sh --target-lang it --tts-engine kokoro --list-tts-voices
 ```
 
 Generate sample files:
 
 ```bash
-./autodub_local.sh --target-lang it --tts-engine edge --sample-tts-voices
-./autodub_local.sh --target-lang it --tts-engine kokoro --sample-tts-voices
+./autodub-local.sh --target-lang it --tts-engine edge --sample-tts-voices
+./autodub-local.sh --target-lang it --tts-engine kokoro --sample-tts-voices
 ```
 
 Preview links printed by `--list-tts-voices`:
@@ -626,7 +628,7 @@ which defaults to 256; it does not limit transcription, translation, or TTS.
 Use `--no-gpu` to force CPU mode for local ML stages:
 
 ```bash
-./autodub_local.sh \
+./autodub-local.sh \
   --input long_talk.mp4 \
   --source-lang en \
   --target-lang it \
@@ -637,12 +639,18 @@ Use `--no-gpu` to force CPU mode for local ML stages:
 
 This hides CUDA/HIP/Vulkan devices from the script process, forces `TRANSLATE_ON_GPU=0`, makes PyTorch-based components choose CPU, and sends `num_gpu=0` in Ollama LLM adaptation requests. If an Ollama server is already running outside the script, `--no-gpu` still requests CPU-only inference through the API, but it cannot fully control the environment that external server was started with.
 
-On the maintainer's older Linux machine, `--no-gpu` is deliberately combined
-with a CPU underclock configured outside this project during long local jobs.
-Both choices substantially increase runtime, but they reduce sustained heat and
-thermal throttling during very high summer ambient temperatures. This is a
-machine-specific reliability and thermal-management tradeoff, not a general
-performance recommendation and not something the script configures itself.
+In an agent-assisted local or mixed workflow, the agent must explicitly ask
+whether the user wants CPU-only execution or allows the script to try compatible
+GPU acceleration. The agent must not infer that choice from the computer's
+owner or hardware. If GPU use is allowed, it should first verify that the
+installed runtime and selected models can use the GPU; if CPU-only execution is
+selected, it should add `--no-gpu` to every applicable invocation.
+
+CPU-only execution can be substantially slower, but it may be preferable for
+thermal, power, or compatibility reasons. An external CPU underclock can reduce
+sustained temperature further in hot conditions, but the script does not
+configure it and an agent must never change clocks, voltages, or thermal policy
+without explicit authorization.
 
 The most practical low-heat combination is now:
 
@@ -764,7 +772,7 @@ Local faster-whisper options:
 Intermediate files are stored under:
 
 ```text
-.autodub_local/<input_stem>/
+.autodub-local/<input_stem>/
 ```
 
 Typical files:
@@ -814,8 +822,8 @@ Release testing is documented in [TESTING.md](TESTING.md). At minimum, every
 script change should pass:
 
 ```bash
-/bin/bash -n autodub_local.sh
-/bin/bash ./autodub_local.sh --help
+/bin/bash -n autodub-local.sh
+/bin/bash ./autodub-local.sh --help
 ```
 
 When the embedded Python worker changes, extract and compile it as described in
