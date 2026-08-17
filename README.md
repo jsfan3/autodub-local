@@ -1,15 +1,8 @@
 # autodub-local: Video Dubbing for Linux and macOS
 
-*[Francesco Galgani](https://www.informatica-libera.net/)*
-
-```text
-============================================================
-autodub-local 3.0
-Author: Francesco Galgani
-Repository: https://github.com/jsfan3/autodub-local
-License: CC0 - https://creativecommons.org/publicdomain/zero/1.0/
-============================================================
-```
+> **autodub-local 3.0**
+> Created by [Francesco Galgani](https://www.informatica-libera.net/)
+> [Source repository](https://github.com/jsfan3/autodub-local) · [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)
 
 Video dubbing for Linux and macOS using local open-source models, cloud
 speech/LLM services, local/online TTS engines, or a mixed workflow.
@@ -123,11 +116,13 @@ workflow, not a guarantee that every source can be corrected automatically.
 
 ### Published Agent-Assisted Examples
 
-| Source language | Italian dub |
-|---|---|
-| Russian | [Alla Voronkova - Digiuno secco a cascata, parte 1](https://www.informatica-libera.net/video/AllaVoronkova-DigiunoSeccoACascata-Parte1_IT_dub.mp4) |
-| French | [Nicolas Pilartz - Introduzione all'alimentazione pranica, parte 1](https://www.informatica-libera.net/video/nicolas-pilartz-introduzione-alimentazione-pranica-1.mp4) and [part 2](https://www.informatica-libera.net/video/nicolas-pilartz-introduzione-alimentazione-pranica-2.mp4) |
-| English | [Richard Stallman at Georgia Tech, Italian dub](https://www.informatica-libera.net/video/rms-2026-01-23-georgia-tech-ITALIANO.mp4) |
+- **Russian to Italian:**
+  [Alla Voronkova - Digiuno secco a cascata, parte 1](https://www.informatica-libera.net/video/AllaVoronkova-DigiunoSeccoACascata-Parte1_IT_dub.mp4)
+- **French to Italian:**
+  [Nicolas Pilartz - Introduzione all'alimentazione pranica, parte 1](https://www.informatica-libera.net/video/nicolas-pilartz-introduzione-alimentazione-pranica-1.mp4)
+  and [part 2](https://www.informatica-libera.net/video/nicolas-pilartz-introduzione-alimentazione-pranica-2.mp4)
+- **English to Italian:**
+  [Richard Stallman at Georgia Tech, Italian dub](https://www.informatica-libera.net/video/rms-2026-01-23-georgia-tech-ITALIANO.mp4)
 
 The Russian and French dubs are shorter than their source videos only because
 selected silence was removed to make listening more fluid; no spoken content
@@ -143,10 +138,20 @@ run will make identical editorial decisions.
 
 ## Tested Environment
 
-| Platform | Python | CPU/RAM | GPU | Validated workflows |
-|---|---|---|---|---|
-| Linux Mint 22 | 3.12.3 | Intel Core i7-7700HQ, 16 GB | NVIDIA GeForce GTX 1050 Mobile, 4 GB | Cloud-assisted and fully local |
-| macOS 15.7.9, Intel x86_64 | 3.12 for cloud; 3.11 for local | Intel Core i5-1030NG7, 8 GB | Integrated Intel graphics | Cloud-assisted, fully local with Kokoro, and fully local with XTTS |
+### Linux Mint 22
+
+- **Python:** 3.12.3
+- **CPU and RAM:** Intel Core i7-7700HQ, 16 GB
+- **GPU:** NVIDIA GeForce GTX 1050 Mobile, 4 GB
+- **Validated workflows:** cloud-assisted and fully local
+
+### macOS 15.7.9 (Intel x86_64)
+
+- **Python:** 3.12 for cloud workflows; 3.11 for local workflows
+- **CPU and RAM:** Intel Core i5-1030NG7, 8 GB
+- **GPU:** integrated Intel graphics
+- **Validated workflows:** cloud-assisted, fully local with Kokoro, and fully
+  local with XTTS
 
 On the tested Linux GPU, current PyTorch CUDA wheels do not support the card's
 compute capability, so torch-based stages fall back to CPU. Ollama may still
@@ -194,10 +199,10 @@ If `HF_TOKEN` is not set, the script prompts once and stores the token in `.hf_t
 
 Cloud services use API keys:
 
-| Service | Used for | Key URL |
-|---|---|---|
-| GroqCloud | Groq Whisper ASR and Groq LLM adaptation | https://console.groq.com/keys |
-| AssemblyAI | Cloud transcription and speaker diarization | https://www.assemblyai.com/dashboard/signup |
+- **GroqCloud** — Used for Groq Whisper ASR and Groq LLM adaptation.
+  [Create or manage a key](https://console.groq.com/keys).
+- **AssemblyAI** — Used for cloud transcription and speaker diarization.
+  [Create an account or open the dashboard](https://www.assemblyai.com/dashboard/signup).
 
 Use environment variables when possible:
 
@@ -446,22 +451,29 @@ Maintenance command:
 Use `clean` by itself. It is not a dubbing option and cannot be combined with
 other arguments.
 
-| Option | Default | Meaning |
-|---|---:|---|
-| `--input FILE` | required for dubbing | Input media file |
-| `--source-lang CODE` | required for dubbing | Source language for Whisper, or `auto` |
-| `--target-lang CODE` | required | Target language for translation and TTS |
-| `--translation-method local|google` | required unless `--only-cloud` | Translation backend |
-| `--tts-engine xtts|kokoro|edge` | required unless `--only-cloud` | TTS engine |
-| `--output FILE` | derived | Output MP4 path |
-| `--only-cloud` | off | Use AssemblyAI ASR/diarization, Google Translate, Groq LLM, Edge TTS, and CPU-only orchestration |
-| `--num-speakers N|auto` | `auto` | Speaker count for diarization |
-| `--min-speakers N` | unset | Lower bound when `--num-speakers auto` |
-| `--max-speakers N` | unset | Upper bound when `--num-speakers auto` |
-| `--whisper-model NAME` | `medium` | faster-whisper model |
-| `--review-translation` | off | Pause after creating the translation JSON in interactive terminals |
-| `--stop-after-translation` | off | Exit after writing the translation JSON |
-| `--no-gpu` | off | Force CPU mode for local ML stages and request CPU-only Ollama inference |
+- **`--input FILE`** — Required for dubbing. Input media file.
+- **`--source-lang CODE`** — Required for dubbing. Source language for Whisper,
+  or `auto`.
+- **`--target-lang CODE`** — Required. Target language for translation and TTS.
+- **`--translation-method local|google`** — Required unless `--only-cloud` is
+  used. Translation backend.
+- **`--tts-engine xtts|kokoro|edge`** — Required unless `--only-cloud` is used.
+  TTS engine.
+- **`--output FILE`** — Derived automatically. Output MP4 path.
+- **`--only-cloud`** — Off by default. Uses AssemblyAI ASR/diarization, Google
+  Translate, Groq LLM, Edge TTS, and CPU-only orchestration.
+- **`--num-speakers N|auto`** — Default: `auto`. Speaker count for diarization.
+- **`--min-speakers N`** — Unset by default. Lower bound when
+  `--num-speakers auto` is used.
+- **`--max-speakers N`** — Unset by default. Upper bound when
+  `--num-speakers auto` is used.
+- **`--whisper-model NAME`** — Default: `medium`. faster-whisper model.
+- **`--review-translation`** — Off by default. Pauses after creating the
+  translation JSON in interactive terminals.
+- **`--stop-after-translation`** — Off by default. Exits after writing the
+  translation JSON.
+- **`--no-gpu`** — Off by default. Forces CPU mode for local ML stages and
+  requests CPU-only Ollama inference.
 
 CLI options are the recommended interface. Environment variables with matching uppercase names are still accepted as fallback for automation.
 
@@ -590,18 +602,17 @@ segmentation because Groq is already selected as the cloud LLM provider.
 
 Relevant options:
 
-| Option | Default |
-|---|---:|
-| `--llm-adapt auto|always|never` | `auto` |
-| `--llm-segment auto|always|never` | `auto` |
-| `--llm-provider ollama|groq` | `ollama` |
-| `--llm-model NAME` | `qwen3:8b-q4_K_M` |
-| `--groq-llm-model NAME` | `openai/gpt-oss-120b` |
-| `--llm-chars-per-second N` | speaker-aware language default; overrides all per-speaker budgets when set |
-| `--llm-max-retries N` | `3` |
-| `--llm-temperature N` | `0.1` |
-| `--llm-timeout SECONDS` | `0` |
-| `--llm-num-predict N` | `256` |
+- **`--llm-adapt auto|always|never`** — Default: `auto`.
+- **`--llm-segment auto|always|never`** — Default: `auto`.
+- **`--llm-provider ollama|groq`** — Default: `ollama`.
+- **`--llm-model NAME`** — Default: `qwen3:8b-q4_K_M`.
+- **`--groq-llm-model NAME`** — Default: `openai/gpt-oss-120b`.
+- **`--llm-chars-per-second N`** — Uses a speaker-aware language default;
+  setting this option overrides every per-speaker budget.
+- **`--llm-max-retries N`** — Default: `3`.
+- **`--llm-temperature N`** — Default: `0.1`.
+- **`--llm-timeout SECONDS`** — Default: `0`.
+- **`--llm-num-predict N`** — Default: `256`.
 
 `--llm-timeout 0` disables the request timeout. This is the default so very slow CPU-only or underclocked runs can continue for days if needed.
 GPT OSS requests use a minimum completion ceiling of 1024 tokens so low-effort
@@ -655,36 +666,30 @@ To avoid local LLM work during diagnostics:
 
 Common timing options:
 
-| Option | Default |
-|---|---:|
-| `--tts-speed N` | `1.0` base speed before per-speaker pacing |
-| `--tts-max-chars N` | `5000` |
-| `--max-tts-compress-ratio N` | `1.15` |
-| `--max-tts-expand-ratio N` | `1.20` |
-| `--aac-bitrate RATE` | `192k` |
+- **`--tts-speed N`** — Default: `1.0` base speed before per-speaker pacing.
+- **`--tts-max-chars N`** — Default: `5000`.
+- **`--max-tts-compress-ratio N`** — Default: `1.15`.
+- **`--max-tts-expand-ratio N`** — Default: `1.20`.
+- **`--aac-bitrate RATE`** — Default: `192k`.
 
 Edge-specific options:
 
-| Option | Default |
-|---|---:|
-| `--tts-locale LOCALE` | derived |
-| `--edge-pitch VALUE` | `+0Hz` |
-| `--edge-volume VALUE` | `+0%` |
-| `--edge-connect-timeout N` | `20` |
-| `--edge-receive-timeout N` | `120` |
-| `--edge-max-retries N` | `3` |
-| `--edge-retry-delay N` | `5` |
+- **`--tts-locale LOCALE`** — Derived automatically.
+- **`--edge-pitch VALUE`** — Default: `+0Hz`.
+- **`--edge-volume VALUE`** — Default: `+0%`.
+- **`--edge-connect-timeout N`** — Default: `20`.
+- **`--edge-receive-timeout N`** — Default: `120`.
+- **`--edge-max-retries N`** — Default: `3`.
+- **`--edge-retry-delay N`** — Default: `5`.
 
 XTTS cloning options:
 
-| Option | Default |
-|---|---:|
-| `--max-ref-clips N` | `3` |
-| `--xtts-max-chars N` | `180` |
-| `--xtts-speed N` | `1.0` |
-| `--xtts-temperature N` | `0.65` |
-| `--xtts-repetition-penalty N` | `2.0` |
-| `--xtts-inter-chunk-silence-ms N` | `120` |
+- **`--max-ref-clips N`** — Default: `3`.
+- **`--xtts-max-chars N`** — Default: `180`.
+- **`--xtts-speed N`** — Default: `1.0`.
+- **`--xtts-temperature N`** — Default: `0.65`.
+- **`--xtts-repetition-penalty N`** — Default: `2.0`.
+- **`--xtts-inter-chunk-silence-ms N`** — Default: `120`.
 
 The script does not force aggressive global speed-up. It only applies ffmpeg
 `atempo` when the required change is within the configured safety ratios.
@@ -698,14 +703,12 @@ overflow in the manifest/logs.
 
 ## Segmentation Options
 
-| Option | Default |
-|---|---:|
-| `--utterance-max-gap SEC` | `0.9` |
-| `--utterance-max-duration SEC` | `18.0` |
-| `--utterance-max-chars N` | `420` |
-| `--utterance-repair-max-gap SEC` | `2.2` |
-| `--utterance-repair-max-duration SEC` | `24.0` |
-| `--utterance-repair-max-chars N` | `620` |
+- **`--utterance-max-gap SEC`** — Default: `0.9`.
+- **`--utterance-max-duration SEC`** — Default: `18.0`.
+- **`--utterance-max-chars N`** — Default: `420`.
+- **`--utterance-repair-max-gap SEC`** — Default: `2.2`.
+- **`--utterance-repair-max-duration SEC`** — Default: `24.0`.
+- **`--utterance-repair-max-chars N`** — Default: `620`.
 
 These limits prevent very long same-speaker blocks from becoming a single translation/TTS segment.
 
@@ -725,31 +728,36 @@ step.
 
 ASR and diarization can be local, cloud-based, or mixed:
 
-| Option | Default | Meaning |
-|---|---:|---|
-| `--asr-backend local|groq|assemblyai` | `local` | Transcription backend |
-| `--diarization-backend local|assemblyai` | `local` | Speaker diarization backend |
-| `--groq-whisper-model NAME` | `whisper-large-v3` | Groq Whisper model |
-| `--groq-prompt TEXT` | unset | Optional prompt/context for Groq Whisper |
-| `--groq-chunk-seconds N` | `120` | Chunk size for Groq uploads |
-| `--groq-overlap-seconds N` | `1.0` | Chunk overlap used only for transcription context |
-| `--groq-timeout SECONDS` | `300` | Groq request timeout |
-| `--groq-max-retries N` | `5` | Groq retry count |
-| `--groq-rate-limit wait|fail` | `wait` | Behavior on HTTP 429 |
-| `--assemblyai-speech-model NAME` | `universal-3-5-pro,universal-2` | AssemblyAI model list |
-| `--assemblyai-poll-interval SEC` | `5` | Poll interval |
-| `--assemblyai-timeout SEC` | `7200` | Total AssemblyAI wait timeout |
+- **`--asr-backend local|groq|assemblyai`** — Default: `local`. Transcription
+  backend.
+- **`--diarization-backend local|assemblyai`** — Default: `local`. Speaker
+  diarization backend.
+- **`--groq-whisper-model NAME`** — Default: `whisper-large-v3`. Groq Whisper
+  model.
+- **`--groq-prompt TEXT`** — Unset by default. Optional prompt or context for
+  Groq Whisper.
+- **`--groq-chunk-seconds N`** — Default: `120`. Chunk size for Groq uploads.
+- **`--groq-overlap-seconds N`** — Default: `1.0`. Chunk overlap used only for
+  transcription context.
+- **`--groq-timeout SECONDS`** — Default: `300`. Groq request timeout.
+- **`--groq-max-retries N`** — Default: `5`. Groq retry count.
+- **`--groq-rate-limit wait|fail`** — Default: `wait`. Behavior on HTTP 429.
+- **`--assemblyai-speech-model NAME`** — Default:
+  `universal-3-5-pro,universal-2`. AssemblyAI model list.
+- **`--assemblyai-poll-interval SEC`** — Default: `5`. Poll interval.
+- **`--assemblyai-timeout SEC`** — Default: `7200`. Total AssemblyAI wait
+  timeout.
 
 `--asr-backend groq` replaces local faster-whisper with Groq Whisper but still needs local diarization unless another diarization backend is selected. Groq does not currently provide speaker diarization in this script.
 
 `--asr-backend assemblyai --diarization-backend assemblyai` uses AssemblyAI for both transcript and speaker labels. `--only-cloud` selects this pair automatically.
 
-| Option | Default |
-|---|---:|
-| `--asr-beam N` | `5` |
-| `--asr-vad true|false` | `true` |
-| `--asr-compute-gpu TYPE` | `int8_float16` |
-| `--asr-compute-cpu TYPE` | `int8` |
+Local faster-whisper options:
+
+- **`--asr-beam N`** — Default: `5`.
+- **`--asr-vad true|false`** — Default: `true`.
+- **`--asr-compute-gpu TYPE`** — Default: `int8_float16`.
+- **`--asr-compute-cpu TYPE`** — Default: `int8`.
 
 ## Cache Layout
 
@@ -854,29 +862,59 @@ High-level guidance:
   Microsoft Edge TTS. Use fully local mode when privacy or offline processing is
   more important than runtime.
 
-Reference table:
+Component references:
 
-| Component | Used for | License / terms summary | Reference |
-|---|---|---|---|
-| `autodub-local` | This script | CC0 | https://creativecommons.org/publicdomain/zero/1.0/ |
-| FFmpeg | Audio/video extraction, stretching, muxing | LGPL v2.1+ by default; GPL v2+ if built with GPL components | https://github.com/FFmpeg/FFmpeg/blob/master/LICENSE.md |
-| OpenAI Whisper weights | Local ASR through faster-whisper | MIT | https://github.com/openai/whisper |
-| faster-whisper | Local ASR runtime | MIT | https://github.com/SYSTRAN/faster-whisper |
-| pyannote.audio | Local diarization toolkit | MIT | https://github.com/pyannote/pyannote-audio |
-| `pyannote/speaker-diarization-3.1` | Local diarization model | Gated Hugging Face model; verify current model card/terms before redistribution or commercial use | https://huggingface.co/pyannote/speaker-diarization-3.1 |
-| NLLB-200 distilled 600M | Local translation | CC-BY-NC; intended for research and sentence-level MT, not production/document translation | https://huggingface.co/facebook/nllb-200-distilled-600M |
-| deep-translator | Google Translate wrapper | MIT package; online provider terms are separate | https://github.com/nidhaloff/deep-translator |
-| Ollama | Local LLM runner | MIT runner; model licenses vary | https://github.com/ollama/ollama |
-| Qwen3 | Default local LLM family | Apache-2.0 open-weight models according to Qwen | https://github.com/QwenLM/Qwen3 |
-| GroqCloud | Cloud Whisper and cloud LLM adaptation | Governed by Groq services terms, rate limits, data settings, and model licenses | https://console.groq.com/docs/legal/services-agreement |
-| Groq Whisper Large v3 | Cloud ASR | OpenAI Whisper model served by Groq; Groq recommends chunking large audio | https://console.groq.com/docs/speech-to-text |
-| GPT OSS 120B | Default Groq LLM | Apache-2.0 open weights plus Groq terms | https://huggingface.co/openai/gpt-oss-120b |
-| AssemblyAI | Cloud transcription and speaker labels | Service terms and free credits; new accounts currently receive free credits for STT-related services | https://www.assemblyai.com/docs/billing-and-pricing |
-| Kokoro | Local preset TTS | Apache-2.0 code/weights | https://huggingface.co/hexgrad/Kokoro-82M |
-| Coqui TTS toolkit | XTTS runtime | MPL-2.0 toolkit; pretrained model licenses vary | https://github.com/coqui-ai/TTS |
-| XTTS v2 model | Local voice cloning | Coqui Public Model License; non-commercial use of model and outputs | https://huggingface.co/coqui/XTTS-v2/blob/main/LICENSE.txt |
-| edge-tts | Python client for Edge TTS | LGPLv3 package, with one MIT file noted in its license | https://github.com/rany2/edge-tts/blob/master/LICENSE |
-| Microsoft Edge TTS service | Online preset TTS | Unofficial service access; Microsoft points commercial users to Azure AI Speech | https://learn.microsoft.com/en-us/answers/questions/2088770/are-opensource-edge-tts-free-for-commercial-use |
+- **`autodub-local`** — This script.
+  [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/).
+- **FFmpeg** — Audio/video extraction, stretching, and muxing. LGPL v2.1+ by
+  default; GPL v2+ if built with GPL components.
+  [License reference](https://github.com/FFmpeg/FFmpeg/blob/master/LICENSE.md).
+- **OpenAI Whisper weights** — Local ASR through faster-whisper. MIT.
+  [Project reference](https://github.com/openai/whisper).
+- **faster-whisper** — Local ASR runtime. MIT.
+  [Project reference](https://github.com/SYSTRAN/faster-whisper).
+- **pyannote.audio** — Local diarization toolkit. MIT.
+  [Project reference](https://github.com/pyannote/pyannote-audio).
+- **`pyannote/speaker-diarization-3.1`** — Local diarization model. Gated
+  Hugging Face model; verify the current model card and terms before
+  redistribution or commercial use.
+  [Model reference](https://huggingface.co/pyannote/speaker-diarization-3.1).
+- **NLLB-200 distilled 600M** — Local translation. CC-BY-NC; intended for
+  research and sentence-level machine translation, not production or document
+  translation.
+  [Model reference](https://huggingface.co/facebook/nllb-200-distilled-600M).
+- **deep-translator** — Google Translate wrapper. MIT package; online provider
+  terms are separate.
+  [Project reference](https://github.com/nidhaloff/deep-translator).
+- **Ollama** — Local LLM runner. MIT runner; model licenses vary.
+  [Project reference](https://github.com/ollama/ollama).
+- **Qwen3** — Default local LLM family. Apache-2.0 open-weight models according
+  to Qwen. [Project reference](https://github.com/QwenLM/Qwen3).
+- **GroqCloud** — Cloud Whisper and cloud LLM adaptation. Governed by Groq
+  service terms, rate limits, data settings, and model licenses.
+  [Service agreement](https://console.groq.com/docs/legal/services-agreement).
+- **Groq Whisper Large v3** — Cloud ASR. OpenAI Whisper model served by Groq;
+  Groq recommends chunking large audio.
+  [Speech-to-text reference](https://console.groq.com/docs/speech-to-text).
+- **GPT OSS 120B** — Default Groq LLM. Apache-2.0 open weights plus Groq terms.
+  [Model reference](https://huggingface.co/openai/gpt-oss-120b).
+- **AssemblyAI** — Cloud transcription and speaker labels. Service terms and
+  free credits; new accounts currently receive free credits for STT-related
+  services.
+  [Billing and pricing reference](https://www.assemblyai.com/docs/billing-and-pricing).
+- **Kokoro** — Local preset TTS. Apache-2.0 code and weights.
+  [Model reference](https://huggingface.co/hexgrad/Kokoro-82M).
+- **Coqui TTS toolkit** — XTTS runtime. MPL-2.0 toolkit; pretrained model
+  licenses vary. [Project reference](https://github.com/coqui-ai/TTS).
+- **XTTS v2 model** — Local voice cloning. Coqui Public Model License;
+  non-commercial use of the model and its outputs.
+  [License reference](https://huggingface.co/coqui/XTTS-v2/blob/main/LICENSE.txt).
+- **edge-tts** — Python client for Edge TTS. LGPLv3 package, with one MIT file
+  noted in its license.
+  [License reference](https://github.com/rany2/edge-tts/blob/master/LICENSE).
+- **Microsoft Edge TTS service** — Online preset TTS. Unofficial service access;
+  Microsoft points commercial users to Azure AI Speech.
+  [Service reference](https://learn.microsoft.com/en-us/answers/questions/2088770/are-opensource-edge-tts-free-for-commercial-use).
 
 Cloud quota notes as of the last README update:
 
